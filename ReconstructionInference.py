@@ -8,7 +8,7 @@ from detectron2.data import MetadataCatalog
 import pathlib, os
 from detectron2.config import get_cfg
 from utils import VTKPointCloud as PC, polygon_functions as spf
-from utils import geo_utils
+from utils import geo_utils, file_utils
 import vtk
 import time
 from datetime import datetime
@@ -25,7 +25,7 @@ OUTLIER_RADIUS = 0.1
 CAM_PROXIMITY_THRESH = 0.3  # m
 ELEV_MEAN_PROX_THRESH = 0.05
 
-CAM_COV_THRESHOLD = 0.02
+CAM_COV_THRESHOLD = 0.01
 
 IMSHOW = False
 VTK = False
@@ -40,7 +40,7 @@ yappi.start()
 def CamToChunk(pnts_cam, cam_quart):
     return np.matmul(cam_quart, np.vstack([pnts_cam, np.ones((1, pnts_cam.shape[1]))]))[:3, :]
 
-def CamPixToChunkPnt(pixels_cam, cam_mtx):
+def CamPixToRay(pixels_cam, cam_mtx):
     return np.matmul(np.linalg.inv(cam_mtx), np.vstack([pixels_cam, np.ones((1, pixels_cam.shape[1]))]))
 
 def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
@@ -56,7 +56,7 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
-MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/third training - input sizes/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
@@ -64,17 +64,18 @@ cfg.set_new_allowed(True)
 cfg.merge_from_file(MODEL_PATH + 'config.yml')
 model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
+print(f"Loading from {model_paths[-1].split('/')[-1]}")
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.1
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
-cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
-cfg.TEST.AUG.MAX_SIZE = 4000
-cfg.TEST.AUG.FLIP = False
-cfg.TEST.PRECISE_BN.ENABLED = False
-cfg.TEST.PRECISE_BN.NUM_ITER = 200
+# cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
+# cfg.TEST.AUG.MAX_SIZE = 4000
+# cfg.TEST.AUG.FLIP = False
+# cfg.TEST.PRECISE_BN.ENABLED = False
+# cfg.TEST.PRECISE_BN.NUM_ITER = 200
 predictor = DefaultPredictor(cfg)
 
 if IMSHOW:
@@ -128,7 +129,7 @@ def run_inference(recon_dir):
         cam_quart = cam_telem['q44']
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
-        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale:
+        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             continue
 
         img_shape = cam_telem['shape']
@@ -153,7 +154,14 @@ def run_inference(recon_dir):
         if len(masks) == 0:
             continue
 
-        img_depth_np = np.load(recon_dir + dimg_path)
+        depth_img_path = recon_dir + dimg_path
+        if '.npy' in dimg_path:
+            img_depth_np = np.load(recon_dir + dimg_path)
+        else:
+            img_depth_u16 = cv2.imread(depth_img_path, cv2.IMREAD_ANYDEPTH)
+            scale = float(depth_img_path.split('/')[-1].split('_')[-1][:-4])
+            img_depth_np = scale * img_depth_u16.astype(np.float32)
+
         img_depth_np = cv2.resize(img_depth_np, rs_size)
         # img_depth_np = cv2.blur(img_depth_np, ksize=(11, 11))
 
@@ -163,6 +171,9 @@ def run_inference(recon_dir):
             v = Visualizer(img_rs[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
             v = v.draw_instance_predictions(instances)
             out_image = v.get_image()[:, :, ::-1].copy()
+            depth_display = (255*(img_depth_np - np.min(img_depth_np)) / np.max(img_depth_np)).astype(np.uint8)
+            depth_display = np.repeat(depth_display[:, :, None], 3, axis=2)
+
         for mask, box, score in list(zip(masks, bboxes, scores)):
             mask_pnts = np.array(np.where(mask))[::-1].transpose()
             scallop_centre, radius = cv2.minEnclosingCircle(mask_pnts)
@@ -171,16 +182,17 @@ def run_inference(recon_dir):
                 mask_np = mask.numpy()[:, :, None].astype(np.uint8)
                 contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                 scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
-                # Clip number of vertices in polygon to 30->60
-                scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 100)]
+                # Clip number of vertices in polygon to 50->100
+                # scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 100)]
                 if IMSHOW:
                     cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
-                    cv2.drawContours(out_image, contours, contourIdx=-1, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.drawContours(depth_display, contours, contourIdx=-1, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
                 # TODO: check all undistortion code and images distortion
 
                 # Undistort polygon vertices
-                vert_elevations = img_depth_np[scallop_polygon[:, 1], scallop_polygon[:, 0]]
+                scallop_polygon_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist).astype(np.int32)
+                vert_elevations = img_depth_np[scallop_polygon_ud[:, 1], scallop_polygon_ud[:, 0]]
                 # Threshold out points close to camera
                 valid_indices = np.where(vert_elevations > (CAM_PROXIMITY_THRESH / chunk_scale))
                 if len(valid_indices[0]) < 10:
@@ -190,10 +202,8 @@ def run_inference(recon_dir):
                 if len(valid_indices[0]) < 10:
                     continue
                 vert_elevations = vert_elevations[valid_indices]
-                scallop_polygon = scallop_polygon[valid_indices]
-                pxpoly_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist)
-                scallop_poly_cam = CamPixToChunkPnt(pxpoly_ud.T, camMtx)
-                scallop_poly_cam = scallop_poly_cam * vert_elevations.T
+                scallop_polygon_ud = scallop_polygon_ud[valid_indices]
+                scallop_poly_cam = CamPixToRay(scallop_polygon_ud.T, camMtx) * vert_elevations.T
 
                 # TODO: flatten detection
 
@@ -205,8 +215,7 @@ def run_inference(recon_dir):
 
                 vert_elevations = img_depth_np[mask_pnts_sub[:, 1], mask_pnts_sub[:, 0]]
                 mask_pnts_ud = spf.undistort_pixels(mask_pnts_sub, camMtx, camDist)
-                scallop_pnts_cam = CamPixToChunkPnt(mask_pnts_sub.T, camMtx)
-                scallop_pnts_cam = scallop_pnts_cam * vert_elevations.T
+                scallop_pnts_cam = CamPixToRay(mask_pnts_ud.T, camMtx) * vert_elevations.T
                 scallop_pnts_cam = spf.remove_outliers(scallop_pnts_cam, OUTLIER_RADIUS / chunk_scale)
                 if scallop_pnts_cam.shape[1] < 10:
                     continue
@@ -250,8 +259,7 @@ def run_inference(recon_dir):
             cv2.rectangle(out_image, edge_box[:2], edge_box[2:], (0, 0, 255), thickness=1)
             cv2.imshow("Input image", img_rs)
             cv2.imshow("Labelled sub image", out_image)
-            depth_display = 255*(img_depth_np - np.min(img_depth_np)) / np.max(img_depth_np)
-            cv2.imshow("Depth", depth_display.astype(np.uint8))
+            cv2.imshow("Depth", depth_display)
             key = cv2.waitKey(WAITKEY)
             if key == ord('q'):
                 exit(0)
@@ -261,7 +269,8 @@ def run_inference(recon_dir):
     # exit(0)
 
     #doc.save()
-    shapes_fn = recon_dir + 'Pred_' + datetime.now().strftime("%d%m%y_%H%M")
+    file_utils.ensure_dir_exists(recon_dir + 'shapes_pred')
+    shapes_fn = recon_dir + 'shapes_pred/Pred_' + datetime.now().strftime("%d%m%y_%H%M")
     shapes_fn_3d = shapes_fn + '_3D.gpkg'
     gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels},
                               geometry='geometry', crs=SHAPE_CRS)
@@ -286,7 +295,7 @@ def run_inference(recon_dir):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs[8:]:
+    for dir_line in ['240714-140552']:  # data_dirs[8:]:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

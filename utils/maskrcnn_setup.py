@@ -25,33 +25,37 @@ def setup(args):
     cfg.merge_from_file("./cnns/mask_rcnn_R_50_FPN_3x.yaml")
     cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
 
+    cfg.INPUT.MIN_SIZE_TRAIN = (800, 1028, 1200,)
+    cfg.INPUT.MAX_SIZE_TRAIN = 1500
+    cfg.INPUT.MIN_SIZE_TEST = 1028
+    cfg.INPUT.MAX_SIZE_TEST = 1232
+
     cfg.NUM_GPUS = args["num_gpus"]
     cfg.SOLVER.IMS_PER_BATCH = args["gpu_batch_size"] * cfg.NUM_GPUS
     cfg.SOLVER.REFERENCE_WORLD_SIZE = cfg.NUM_GPUS
-    cfg.SOLVER.WARMUP_ITERS = cfg.SOLVER.WARMUP_ITERS // cfg.NUM_GPUS
-
-    cfg.OUTPUT_DIR = args["output_dir"]
-    cfg.DATASETS.TRAIN = train_dirs
-    cfg.DATASETS.TEST = valid_dirs
-    cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS = False  # Use all images including those without scallops
-    cfg.TEST.EVAL_PERIOD = 500 // cfg.NUM_GPUS
-    cfg.DATALOADER.NUM_WORKERS = 2 * cfg.NUM_GPUS
-    cfg.SOLVER.CHECKPOINT_PERIOD = 600 // cfg.NUM_GPUS
-
-    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
-    cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0
-
-    cfg.SOLVER.BASE_LR = cfg.NUM_GPUS * 0.001
+    cfg.SOLVER.WARMUP_ITERS = 0  # 400
+    cfg.SOLVER.CHECKPOINT_PERIOD = 200
+    cfg.SOLVER.BASE_LR = 0.01
     cfg.SOLVER.GAMMA = 0.1
     # The iteration number to decrease learning rate by GAMMA.
-    cfg.SOLVER.STEPS = (10000 // cfg.NUM_GPUS,)
+    cfg.SOLVER.STEPS = (500,)
+    cfg.SOLVER.MAX_ITER = 5000
 
-    cfg.SOLVER.MAX_ITER = 20000 // cfg.NUM_GPUS
     cfg.SOLVER.MOMENTUM = 0.9
     cfg.SOLVER.WEIGHT_DECAY = 0.0001
     # The weight decay that's applied to parameters of normalization layers
     # (typically the affine transformation)
     cfg.SOLVER.WEIGHT_DECAY_NORM = 0.0
+
+    cfg.OUTPUT_DIR = args["output_dir"]
+    cfg.DATASETS.TRAIN = train_dirs
+    cfg.DATASETS.TEST = valid_dirs
+    cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS = False  # Use all images including those without scallops
+    cfg.TEST.EVAL_PERIOD = 100
+    cfg.DATALOADER.NUM_WORKERS = 10 * cfg.NUM_GPUS
+
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
+    cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0
 
     cfg.MODEL.BACKBONE.FREEZE_AT = 0
 

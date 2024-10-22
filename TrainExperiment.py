@@ -9,15 +9,15 @@ from detectron2.utils.visualizer import Visualizer
 import cv2
 from datetime import datetime
 from utils import maskrcnn_setup, train_net, file_utils, augmentations as A
-from CreateDataset import CNN_INPUT_SHAPE
+from CreateDatasets import CNN_INPUT_SHAPE
 
 WRITE = True
-RESUME = True
+RESUME = False
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
 NUM_GPUS = 3
-BATCH_SIZE = 20  # Images per GPU
+BATCH_SIZE = 16  # 20  # Images per GPU
 
 augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomContrast(0.8, 1.2),
@@ -38,18 +38,19 @@ no_augs = []  # transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
            #  transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 EXP_START_IDX = 0
-experiment_titles = ["first_train_new",]
-augmentation_sets = [no_augs]
+experiment_titles = ["tuning learning rate",]
+augmentation_sets = [augs]
 
 # valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
 # train_dataset_1 = [BASE_DIR+'ScallopReconstructions/'+dir for dir in ['gopro_119/left']]
 # train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
 #                             ]
-valid_dataset_1 = ['240713-104835', '240616-082046', '240629-105107', '240627-113019']
+valid_dataset_1 = ['240713-104835', '240714-084519', '240617-132136', '240617-080551', '240616-082046',
+                   '240713-134608', '240618-090121', '240714-140552']
 valid_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in valid_dataset_1]
-train_dataset_1 = ['240714-140552', '240713-134608', '240628-073947', '240618-090121',
-                   '240629-152334', '240628-084724', '240626-154500', '240629-121748',
-                   '240607-093240',]  # '240626-162116', '240626-165556', '240626-101911']
+train_dataset_1 = ['240628-073947', '240629-100813', '240630-065651', '240629-152334', '240626-082107', '240628-084724',
+                   '240629-105107', '240627-113019', '240626-154500', '240629-121748', '240607-093240', '240628-080625',
+                   '240627-163723', '240626-162116', '240626-165556', '240626-101911']
 train_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in train_dataset_1]
 datasets = [[train_dataset_1, valid_dataset_1]]
 

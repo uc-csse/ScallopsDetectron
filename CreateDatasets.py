@@ -39,10 +39,10 @@ def CamVecToPixCoord(pnts_cam, cam_mtx):
     return (pix_dash / pix_dash[2, :])[:2, :]
 
 
-def create_dataset(data_dir):
-
-    dataset_name = 'dataset-' + data_dir.split('/')[-2]
-    file_utils.ensure_dir_exists(data_dir + dataset_name, clear=True)
+def create_dataset(dirname):
+    data_dir = PROCESSED_BASEDIR + dirname
+    dataset_name = 'dataset-' + dirname[:-1]
+    file_utils.ensure_dir_exists(data_dir + dataset_name, clear=not DISPLAY)
 
     if DISPLAY:
         cv2.namedWindow("Annotated img", cv2.WINDOW_GUI_NORMAL)
@@ -60,6 +60,7 @@ def create_dataset(data_dir):
 
     print("Importing shapes from gpkgs and .vpz")
     # TODO: check for annotations overlap??
+    # TODO: check for same file and
     shape_layers = []
     shape_fpaths = glob.glob(data_dir + '*Poly*.gpkg')
     for shape_path in shape_fpaths:
@@ -70,6 +71,10 @@ def create_dataset(data_dir):
     for shape_layer in shape_layers_vpz:
         if 'poly' in shape_layer[0].lower():
             shape_layers.append(shape_layer[1])
+
+    if len(shape_layers) == 0:
+        print(f"No annotation shape layers of files found! Ignoring {dirname}")
+        return
 
     print("Initialising DEM Reader")
     dem_obj = tiff_utils.DEM(data_dir + 'geo_tiffs/')
@@ -124,7 +129,7 @@ def create_dataset(data_dir):
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
         # Check camera accuracy
-        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale:
+        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             continue
         height, width = cam_telem['shape']
         img_path_rel = cam_telem['cpath']
@@ -257,4 +262,4 @@ if __name__ == '__main__':
         print("Processing Annotations", data_dir)
 
         # Process this directory
-        create_dataset(PROCESSED_BASEDIR + data_dir)
+        create_dataset(data_dir)

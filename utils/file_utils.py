@@ -1,9 +1,4 @@
 import os, shutil
-import pickle
-import pathlib
-from deprecated_files import dvl_data_utils
-from matplotlib import pyplot as plt
-import numpy as np
 import zipfile
 import glob
 import xml.etree.ElementTree as ET
@@ -12,6 +7,11 @@ import xml.etree.ElementTree as ET
 def del_if_exists(path):
     if os.path.exists(path):
         os.remove(path)
+
+def SetFolderPermissions(folder):
+    # TKRFILES=$(ls -l | grep tkr25 | grep 2304 | tr -s ' ' | cut -f9 -d ' ')
+    # chmod -R g+rwX,o+rX $TKRFILES
+    os.system("chmod -R g+rwX " + folder)
 
 def clear_dir(dir_path):
     files = os.listdir(dir_path)
