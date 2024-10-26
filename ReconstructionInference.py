@@ -16,6 +16,8 @@ from shapely.geometry import Polygon, Point
 import geopandas as gpd
 import pickle
 
+NUM_INFERENCE_THREADS = 4
+
 IMG_RS_MOD = 2
 
 MASK_PNTS_SUB = 200
@@ -30,11 +32,13 @@ CAM_COV_THRESHOLD = 0.01
 IMSHOW = False
 VTK = False
 WAITKEY = 0
+YAPPI_PROFILE = False
 
 SHAPE_CRS = "EPSG:4326"
 
-import yappi
-yappi.start()
+if YAPPI_PROFILE:
+    import yappi
+    yappi.start()
 
 
 def CamToChunk(pnts_cam, cam_quart):
@@ -56,7 +60,7 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
-MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/third training - input sizes/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/tuning learning rate/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
@@ -78,6 +82,7 @@ cfg.TEST.AUG.ENABLED = False
 # cfg.TEST.PRECISE_BN.NUM_ITER = 200
 predictor = DefaultPredictor(cfg)
 
+
 if IMSHOW:
     cv2.namedWindow("Depth", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Input image", cv2.WINDOW_NORMAL)
@@ -97,6 +102,10 @@ if VTK:
     ren.AddActor(vtk_axes)
     ren.AddActor(pnt_cld.vtkActor)
     iren.Initialize()
+
+def log(str):
+    with open(PROCESSED_BASEDIR + 'inference_log.txt', 'a') as lf:
+        lf.write(str + '\n')
 
 
 def TransformPoints(pnts, transform_quart):
@@ -122,10 +131,16 @@ def run_inference(recon_dir):
     prediction_labels = []
     gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
     cnt = 0
+    sensor_keys = []
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cnt += 1
-        # if cnt % 10 != 0:
+        sensor_key = cam_label.split('-')[0]
+        if sensor_key not in sensor_keys:
+            sensor_keys.append(sensor_key)
+        # if cnt < 1000:
         #     continue
+        # if cnt > 1300:
+        #     break
         cam_quart = cam_telem['q44']
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
@@ -134,25 +149,25 @@ def run_inference(recon_dir):
 
         img_shape = cam_telem['shape']
         cimg_path = cam_telem['cpath']
-        dimg_path = cam_telem['dpath']
-        camMtx = cam_telem['cam_mtx']
-        camMtx[:2, :] /= IMG_RS_MOD
-        camDist = cam_telem['cam_dist']
-        cam_fov = cam_telem['cam_fov']
 
-        # Images from metashape are distorted including depth image
         img = cv2.imread(recon_dir + cimg_path)
         rs_size = (img_shape[1] // IMG_RS_MOD, img_shape[0] // IMG_RS_MOD)
         img_rs = cv2.resize(img, rs_size)
-        # img_cam_ud = cv2.undistort(img_rs, cameraMatrix=camMtx, distCoeffs=camDist)
 
         outputs = predictor(img_rs)
         instances = outputs["instances"].to("cpu")
+
         masks = instances._fields['pred_masks']
         bboxes = instances._fields['pred_boxes']
         scores = instances._fields['scores']
         if len(masks) == 0:
             continue
+
+        dimg_path = cam_telem['dpath']
+        camMtx = cam_telem['cam_mtx']
+        camMtx[:2, :] /= IMG_RS_MOD
+        camDist = cam_telem['cam_dist']
+        cam_fov = cam_telem['cam_fov']
 
         depth_img_path = recon_dir + dimg_path
         if '.npy' in dimg_path:
@@ -264,12 +279,15 @@ def run_inference(recon_dir):
             if key == ord('q'):
                 exit(0)
 
-    # yappi.get_func_stats().print_all()
-    # yappi.get_thread_stats().print_all()
-    # exit(0)
+    if len(sensor_keys) != 2:
+        log(f"{recon_dir} has {len(sensor_keys)} sensors in camera_telem.pkl!")
 
-    #doc.save()
-    file_utils.ensure_dir_exists(recon_dir + 'shapes_pred')
+    if YAPPI_PROFILE:
+        yappi.get_func_stats().print_all()
+        yappi.get_thread_stats().print_all()
+        exit(0)
+
+    file_utils.ensure_dir_exists(recon_dir + 'shapes_pred', clear=True)
     shapes_fn = recon_dir + 'shapes_pred/Pred_' + datetime.now().strftime("%d%m%y_%H%M")
     shapes_fn_3d = shapes_fn + '_3D.gpkg'
     gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels},
@@ -295,7 +313,7 @@ def run_inference(recon_dir):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in ['240714-140552']:  # data_dirs[8:]:
+    for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing
@@ -305,5 +323,3 @@ if __name__ == "__main__":
 
         # Process this directory
         run_inference(PROCESSED_BASEDIR + data_dir)
-
-        break

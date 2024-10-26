@@ -6,11 +6,13 @@ from shapely.geometry import *
 
 
 TRANSECT_GTEXTP_RANGE = 12  # Distance over which propagated GT looses all it's confidence
+GPS_DIST_CORRECTION = 1.025
 
 METRES_PER_FOOT = 0.3048
 
 # Things that will break this code
 #  -> Lines without GT points on them
+
 
 def lineseg_distance(seg, pnt):
     seg_vec = seg[1] - seg[0]
@@ -19,52 +21,12 @@ def lineseg_distance(seg, pnt):
     prp_d = np.cross(seg_vec, pnt_vec) / seg_len
     pll_d1 = np.sqrt(np.linalg.norm(seg[0] - pnt) ** 2 - prp_d ** 2)
     pll_d2 = np.sqrt(np.linalg.norm(seg[1] - pnt) ** 2 - prp_d ** 2)
-    on_seg = pll_d1 < seg_len and pll_d2 < seg_len
+    # Need slightly looser threshold to account for wonky transect line leaving gaps so no true perpendicular
+    # Good for up to 10 degrees of line deflection
+    seg_len_larger = seg_len + 0.2
+    on_seg = pll_d1 < seg_len_larger and pll_d2 < seg_len_larger
     return pll_d1 / seg_len if on_seg else -1, prp_d
 
-def closest_lineseg_gps(linesegs_gps, pnt_gps):
-    closest_tloc = (0, 1000)
-    closest_idx = -1
-    closest_sub_idx = 0
-    tmp_closest_sub_idx = 0
-    for seg_idx, seg_gps in enumerate(linesegs_gps):
-        datum = np.array(seg_gps[0])
-        local_pnt = geo_utils.convert_gps2local(datum, [pnt_gps])[0]
-        local_segs = geo_utils.convert_gps2local(datum, np.array(seg_gps))
-        if len(local_segs) < 2:
-            raise "Line with less than 2 points!"
-        elif len(local_segs) >= 2:
-            closest_sub_tloc = (0.0, 1000.0)
-            for sub_idx in range(len(local_segs) - 1):
-                f_par, d_per = lineseg_distance(local_segs[sub_idx:sub_idx + 2], local_pnt)
-                if f_par > 0 and d_per < closest_sub_tloc[1]:
-                    tmp_closest_sub_idx = sub_idx
-                    closest_sub_tloc = (f_par, d_per)
-            f_par, d_per = closest_sub_tloc
-        if 0.0 < f_par < 1.0 and d_per < closest_tloc[1]:
-            closest_idx = seg_idx
-            closest_sub_idx = tmp_closest_sub_idx
-            closest_tloc = (f_par, d_per)
-    return closest_idx, closest_sub_idx, closest_tloc
-
-
-def closest_transect_vert(transect_segs, pnt):
-    d_tran, d_perp = pnt
-    closest_idx = -1
-    closest_sub_idx = 0
-    closest_distance = 1000
-    for tseg_idx, tseg in enumerate(transect_segs):
-        for sub_idx in range(len(tseg) - 1):
-            dist = d_tran - tseg[sub_idx]
-            if d_tran == 0.14:
-                print(dist)
-            if dist < 0:
-                break
-            if dist < closest_distance:
-                closest_distance = dist
-                closest_idx = tseg_idx
-                closest_sub_idx = sub_idx
-    return closest_idx, closest_sub_idx, closest_distance
 
 class TransectMapper:
     def __init__(self):
@@ -72,6 +34,7 @@ class TransectMapper:
         self.gps_gt = []
         self.transect_gt = []
         self.transect_segs = None
+        self.transect_dist_limits = [1e3, 0]    # min, max
         self.transect_segs_wm = None    # zero start with seg lengths defined by world length
 
     def create_map_from_gdf(self, transect_df):
@@ -81,10 +44,12 @@ class TransectMapper:
         for i, row in transect_df.iterrows():
             geom = row.geometry
             if isinstance(geom, LineString):
-                line_segs.append(np.array(geom.coords)[:, :2])
+                line_segs.append(np.array(geom.coords, dtype=np.float64)[:, :2])
             elif isinstance(geom, Point):
                 label = row.NAME
                 valid_gtl = True
+                if 'Tape' in label:
+                    continue
                 if 'm' in label:
                     label_l = label.split('m')
                     gt_dist_m = float(label_l[0])
@@ -95,7 +60,7 @@ class TransectMapper:
                     print(f"Invalid GT Point label: {label}")
                     continue
                 assert len(label_l) == 2
-                gt_pts.append(np.array(geom.coords)[0, :2])
+                gt_pts.append(np.array(geom.coords, dtype=np.float64)[0, :2])
                 gt_vals.append(gt_dist_m)
             else:
                 raise "Geom type not supported!"
@@ -111,20 +76,18 @@ class TransectMapper:
         transect_gts_idxval = [[] for seg in line_segs_gps]
         # Find closest line seg and set transect distance, create new vertex if not near existing, otherwise replace
         for gt_idx, (gt_gps_pnt, gt_td_par) in enumerate(zip(gt_points, gt_td)):
-            idx, sub_idx, (f_par, d_per) = closest_lineseg_gps(self.line_segs_gps, gt_gps_pnt)
-            if d_per > 0.05:
+            idx, sub_idx, (f_par, d_per) = self.closest_lineseg_gps(gt_gps_pnt)
+            if abs(d_per) > 0.05:
                 print(f"Bad GT point IDX {gt_idx} - too far from line")
                 continue
             tmp_sub_idx = sub_idx + int(f_par >= 0.01)
             if 0.01 < f_par < 0.99:
                 self.line_segs_gps[idx].insert(tmp_sub_idx, gt_gps_pnt)
-                # shift existing higher indexes along by one when inserting:
-                new_transect_gts_idxval = []
-                for sub_transect_gts_idxval in transect_gts_idxval:
-                    new_transect_gts_idxval.append([])
-                    for i, v in sub_transect_gts_idxval:
-                        new_transect_gts_idxval[-1].append([i + (1 if i > sub_idx else 0), v])
-                transect_gts_idxval = new_transect_gts_idxval
+                # shift existing seg higher indexes along by one when inserting:
+                new_seg_gts_idxval = []
+                for i, v in transect_gts_idxval[idx]:
+                    new_seg_gts_idxval.append([i + (1 if i > sub_idx else 0), v])
+                transect_gts_idxval[idx] = new_seg_gts_idxval
             transect_gts_idxval[idx].append([tmp_sub_idx, gt_td_par])
             self.gps_gt.append(gt_gps_pnt)
             self.transect_gt.append(gt_td_par)
@@ -136,6 +99,7 @@ class TransectMapper:
             for sub_idx in range(len(seg)-1):
                 dist = geo_utils.measure_chordlen(self.line_segs_gps[seg_idx][sub_idx],
                                                   self.line_segs_gps[seg_idx][sub_idx + 1])
+                dist *= GPS_DIST_CORRECTION
                 # print(self.line_segs_gps[seg_idx][sub_idx], self.line_segs_gps[seg_idx][sub_idx + 1], dist)
                 self.transect_segs_wm[seg_idx][sub_idx + 1] = self.transect_segs_wm[seg_idx][sub_idx] + dist
             if seg_idx < len(self.transect_segs_wm) - 1:
@@ -160,6 +124,7 @@ class TransectMapper:
                             continue
                         dist = geo_utils.measure_chordlen(self.line_segs_gps[seg_idx][new_idx-w_dir],
                                                           self.line_segs_gps[seg_idx][new_idx])
+                        dist *= GPS_DIST_CORRECTION
                         base_dist, base_conf = gt_seg_arrays[i, new_idx-w_dir]
                         # TODO: Tune confidence
                         # confidence = 1 / (walk_idx + 2) ** 2
@@ -170,9 +135,68 @@ class TransectMapper:
             estimated_transect_dists = gt_seg_combined[:, 0] / gt_seg_combined[:, 1]
             self.transect_segs.append(estimated_transect_dists)
 
+        # Get transect parallel distance limits
+        # for seg in self.transect_segs:
+        #     for t_vert in seg:
+        #         self.transect_dist_limits[0] = min(self.transect_dist_limits[0], t_vert)
+        #         self.transect_dist_limits[1] = max(self.transect_dist_limits[0], t_vert)
+        # print(self.transect_dist_limits)
+
+    def closest_transect_vert(self, pnt):
+        d_tran, d_perp = pnt
+        closest_idx = -1
+        closest_sub_idx = 0
+        closest_distance = 1000
+        for tseg_idx, tseg in enumerate(self.transect_segs):
+            for sub_idx in range(len(tseg)):
+                dist = d_tran - tseg[sub_idx]
+                if dist < 0:
+                    break
+                if dist < closest_distance:
+                    closest_distance = dist
+                    closest_idx = tseg_idx
+                    closest_sub_idx = sub_idx
+        # Check for off end of transect
+        if closest_sub_idx == len(self.transect_segs[closest_idx])-1:
+            closest_idx = -1
+        return closest_idx, closest_sub_idx, closest_distance
+
+    def closest_lineseg_gps(self, pnt_gps):
+        closest_tloc = (0, 1000)
+        closest_idx = -1
+        closest_sub_idx = 0
+        tmp_closest_sub_idx = 0
+        num_segs = len(self.line_segs_gps)
+        for seg_idx, seg_gps in enumerate(self.line_segs_gps):
+            datum = np.array(seg_gps[0], dtype=np.float64)
+            local_pnt = geo_utils.convert_gps2local(datum, [pnt_gps])[0]
+            local_segs = geo_utils.convert_gps2local(datum, np.array(seg_gps, dtype=np.float64))
+            if len(local_segs) < 2:
+                raise Exception("Line with less than 2 points!")
+            closest_sub_tloc = (0.0, 1000.0, 1000.0)
+            for sub_idx in range(len(local_segs) - 1):
+                f_par, d_per = lineseg_distance(local_segs[sub_idx:sub_idx + 2], local_pnt)
+                par_offseg_err = (f_par > 1.0) * (f_par - 1.0) + (f_par < 0.0) * f_par
+                off_transect_ends = ((seg_idx == 0 and sub_idx == 0 and par_offseg_err < 0) or
+                                     (seg_idx == num_segs and sub_idx == len(local_segs)-2 and par_offseg_err > 0))
+                par_offseg_closer = abs(par_offseg_err) <= closest_sub_tloc[2]
+                if f_par != -1 and par_offseg_closer and not off_transect_ends:
+                    # if par_offseg_err > 0.0:
+                    #     print("Off seg slightly", seg_idx, sub_idx, f_par, d_per, par_offseg_err)
+                    # else:
+                    #     print("on seg", seg_idx, sub_idx, f_par, d_per, par_offseg_err)
+                    tmp_closest_sub_idx = sub_idx
+                    closest_sub_tloc = (f_par, d_per, abs(par_offseg_err))
+            f_par, d_per, _ = closest_sub_tloc
+            if (-0.1 < f_par < 1.1) and abs(d_per) < abs(closest_tloc[1]) and abs(d_per) <= 1.0:
+                closest_idx = seg_idx
+                closest_sub_idx = tmp_closest_sub_idx
+                closest_tloc = (f_par, d_per)
+        return closest_idx, closest_sub_idx, closest_tloc
+
     def gps2transect(self, gps_pnt):
         # lon, lat
-        idx, sub_idx, (f_par, d_per_m) = closest_lineseg_gps(self.line_segs_gps, gps_pnt)
+        idx, sub_idx, (f_par, d_per_m) = self.closest_lineseg_gps(gps_pnt)
         if idx == -1:
             print(f"GPS point not in transect! {gps_pnt}")
             return None
@@ -183,7 +207,7 @@ class TransectMapper:
         return d_par_m, d_per_m
 
     def transect2gps(self, transect_pnt):
-        idx, sub_idx, closest_par_dist = closest_transect_vert(self.transect_segs, transect_pnt)
+        idx, sub_idx, closest_par_dist = self.closest_transect_vert(transect_pnt)
         if idx == -1:
             print(f"Transect point not in map! {transect_pnt}")
             return None
@@ -191,16 +215,15 @@ class TransectMapper:
         gps1 = self.line_segs_gps[idx][sub_idx]
         gps2 = self.line_segs_gps[idx][sub_idx + 1]
         transect_seg_len = self.transect_segs[idx][sub_idx + 1] - self.transect_segs[idx][sub_idx]
-        seg_vec_local_par = geo_utils.convert_gps2local(gps1, [gps2])[0]
-        gps_seg_length_m = np.linalg.norm(seg_vec_local_par) + 1e-32
-        # if 100 * (transect_seg_len - gps_seg_length_m) / gps_seg_length_m > 1.0:
-        #     print("Seg length differs by more than 1% between gps and transect:")
-        #     print("gps length m", gps_seg_length_m)
-        #     print("transect length m", transect_seg_len)
-        seg_vec_local_par /= transect_seg_len  # gps_seg_length_m
-        seg_vec_local_per = seg_vec_local_par[::-1] * np.array([1, -1])
-        pnt_local = closest_par_dist * seg_vec_local_par + transect_pnt[1] * seg_vec_local_per
-        return geo_utils.convert_local2gps(gps1, np.array([pnt_local]))[0]
+        seg_vec_local = geo_utils.convert_gps2local(gps1, [gps2])[0]
+        # TODO: scale conversions between transect and GPS frames
+        gps_seg_len_m = np.linalg.norm(seg_vec_local) + 1e-32
+        seg_vec_local /= gps_seg_len_m
+        seg_vec_local_per = seg_vec_local[::-1] * np.array([1, -1], dtype=np.float64)
+        seg_vec_local /= transect_seg_len / gps_seg_len_m
+        # seg_vec_local_per /= transect_seg_len / gps_seg_len_m
+        pnt_local = closest_par_dist * seg_vec_local + transect_pnt[1] * seg_vec_local_per
+        return geo_utils.convert_local2gps(gps1, np.array([pnt_local], dtype=np.float64))[0]
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ def getDatasetDict(dataset_dir):
     with open(dataset_dir + "/" + json_files[0], 'r') as fp:
         dataset_dict = json.load(fp)
         for data_entry in dataset_dict:
+            assert os.path.isfile(dataset_dir + data_entry["file_name"])
             data_entry["file_name"] = dataset_dir + data_entry["file_name"]
     return dataset_dict
 
@@ -33,13 +34,13 @@ def setup(args):
     cfg.NUM_GPUS = args["num_gpus"]
     cfg.SOLVER.IMS_PER_BATCH = args["gpu_batch_size"] * cfg.NUM_GPUS
     cfg.SOLVER.REFERENCE_WORLD_SIZE = cfg.NUM_GPUS
-    cfg.SOLVER.WARMUP_ITERS = 0  # 400
+    cfg.SOLVER.WARMUP_ITERS = 100  # 400
     cfg.SOLVER.CHECKPOINT_PERIOD = 200
     cfg.SOLVER.BASE_LR = 0.01
     cfg.SOLVER.GAMMA = 0.1
     # The iteration number to decrease learning rate by GAMMA.
-    cfg.SOLVER.STEPS = (500,)
-    cfg.SOLVER.MAX_ITER = 5000
+    cfg.SOLVER.STEPS = (1000,)
+    cfg.SOLVER.MAX_ITER = 10000
 
     cfg.SOLVER.MOMENTUM = 0.9
     cfg.SOLVER.WEIGHT_DECAY = 0.0001

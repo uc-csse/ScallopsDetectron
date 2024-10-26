@@ -17,7 +17,7 @@ SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
 NUM_GPUS = 3
-BATCH_SIZE = 16  # 20  # Images per GPU
+BATCH_SIZE = 20  # Images per GPU
 
 augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomContrast(0.8, 1.2),
@@ -38,7 +38,7 @@ no_augs = []  # transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
            #  transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 EXP_START_IDX = 0
-experiment_titles = ["tuning learning rate",]
+experiment_titles = ["fourth",]
 augmentation_sets = [augs]
 
 # valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
@@ -50,7 +50,7 @@ valid_dataset_1 = ['240713-104835', '240714-084519', '240617-132136', '240617-08
 valid_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in valid_dataset_1]
 train_dataset_1 = ['240628-073947', '240629-100813', '240630-065651', '240629-152334', '240626-082107', '240628-084724',
                    '240629-105107', '240627-113019', '240626-154500', '240629-121748', '240607-093240', '240628-080625',
-                   '240627-163723', '240626-162116', '240626-165556', '240626-101911']
+                   '240626-162116', '240626-165556', '240626-101911']
 train_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in train_dataset_1]
 datasets = [[train_dataset_1, valid_dataset_1]]
 

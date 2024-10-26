@@ -23,6 +23,8 @@ CAM_SCALLOP_Z_THRESH = 2.0
 
 PIX_EDGE_THRESH_CORNER = 10
 
+BOUNDARY_BUFFER_DIST_M = 0.1
+
 IMG_SHAPE = (2056, 2464)
 IMG_RS_MOD = 2
 CNN_INPUT_SHAPE = (IMG_SHAPE[0] // IMG_RS_MOD, IMG_SHAPE[1] // IMG_RS_MOD)
@@ -62,15 +64,27 @@ def create_dataset(dirname):
     # TODO: check for annotations overlap??
     # TODO: check for same file and
     shape_layers = []
-    shape_fpaths = glob.glob(data_dir + '*Poly*.gpkg')
+    shape_fpaths = glob.glob(data_dir + 'shapes_ann/*Poly*.gpkg')
     for shape_path in shape_fpaths:
         shape_gdf = gpd.read_file(shape_path)
         shapes_label = shape_path.split('/')[-1].split('.')[0]
+        print(f"Importing {shapes_label} from files")
         shape_layers.append(shape_gdf)
     shape_layers_vpz = vpz_utils.get_shape_layers_gpd(data_dir, data_dir.split('/')[-2] + '.vpz')
-    for shape_layer in shape_layers_vpz:
-        if 'poly' in shape_layer[0].lower():
-            shape_layers.append(shape_layer[1])
+    include_polygons = []
+    exclude_polygons = []
+    for layer_label, shape_layer in shape_layers_vpz:
+        if layer_label in ['Include Areas', 'Exclude Areas']:
+            inc_bound = layer_label == 'Include Areas'
+            boundary_list = include_polygons if inc_bound else exclude_polygons
+            for poly in shape_layer.geometry:
+                offset_poly = poly.buffer(BOUNDARY_BUFFER_DIST_M / 111e3 * (-1 if inc_bound else 1), join_style=2)
+                boundary_list.extend(offset_poly.geoms if isinstance(offset_poly, MultiPolygon) else [offset_poly])
+        if 'poly' in layer_label.lower():
+            shape_layers.append(shape_layer)
+
+    # test_write_gdf = gpd.GeoDataFrame({'NAME': 'test', 'geometry': include_polygons}, geometry='geometry')
+    # test_write_gdf.to_file('/csse/users/tkr25/Desktop/include_shrunk.geojson', driver='GeoJSON')
 
     if len(shape_layers) == 0:
         print(f"No annotation shape layers of files found! Ignoring {dirname}")
@@ -80,6 +94,7 @@ def create_dataset(dirname):
     dem_obj = tiff_utils.DEM(data_dir + 'geo_tiffs/')
     # Transformer from geographic/geodetic coordinates to geocentric
     ccs2gcs = lambda pnt: geo_utils.geodetic_to_geocentric(pnt[1], pnt[0], pnt[2])
+    gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
     print("Getting 3D polygons using DEMs")
     polygons_chunk = []
     for shape_gdf in shape_layers:
@@ -131,6 +146,16 @@ def create_dataset(dirname):
         # Check camera accuracy
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             continue
+
+        # Check camera center is inside include area and outside all exclude areas (with buffer)
+        camloc_chunk = cam_quart[:3, 3][:, None]
+        camloc_geocentric = TransformPoints(camloc_chunk, chunk_transform)
+        camloc_geodetic_pnt = Point(np.apply_along_axis(gcs2ccs, 1, camloc_geocentric.T)[0, :2])
+        if len(include_polygons) and not any(camloc_geodetic_pnt.within(inc_poly) for inc_poly in include_polygons):
+            continue
+        if any(camloc_geodetic_pnt.within(exc_poly) for exc_poly in exclude_polygons):
+            continue
+
         height, width = cam_telem['shape']
         img_path_rel = cam_telem['cpath']
         img_path = data_dir + img_path_rel
@@ -138,8 +163,6 @@ def create_dataset(dirname):
         camMtx[:2, :] /= IMG_RS_MOD
         camDist = cam_telem['cam_dist']
         cam_fov = cam_telem['cam_fov']
-
-        # TODO: write RS images to dataset directory
 
         # img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
         # img_cam_und = cv2.undistort(img, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
@@ -256,10 +279,10 @@ if __name__ == '__main__':
         # Check if this is a valid directory that needs processing
         if len(dir_line) == 1 or '#' in dir_line:
             continue
-        if not 'done' in dir_line.lower():
+        if not 'second done' in dir_line.lower():
             continue
         data_dir = dir_line.split(' ')[0][:13] + '/'
         print("Processing Annotations", data_dir)
 
         # Process this directory
-        create_dataset(data_dir)
+        # create_dataset(data_dir)
