@@ -1,6 +1,7 @@
 import glob
 import geopandas as gp
 import pandas as pd
+import shapely
 from shapely.geometry import *
 import numpy as np
 from utils import geo_utils, vpz_utils, file_utils, tiff_utils
@@ -29,9 +30,6 @@ PAIRED_SITE_ID_STRS = ['EX', 'MC', 'OP', 'UQ']
 
 PARA_DIST_THRESH = 0.2
 PERP_DIST_THRESH = 0.1
-
-OUTPUT_SHAPE_LAYERS = True
-ONLY_IN_DIVER_SEARCH_AREA = True
 
 def get_poly_arr_2d(poly):
     return np.array(poly.exterior.coords)[:, :2]
@@ -69,13 +67,15 @@ def process_dir(dir_name):
     print("Initialising DEM Reader")
     dem_obj = tiff_utils.DEM(dir_full + 'geo_tiffs/')
 
+    file_utils.ensure_dir_exists(dir_full + 'shapes_ann')
+
     # TODO: multiple shape files - yes but need to be careful not to double count scallops
     # Load scallop polygons
     scallop_gpkg_paths = glob.glob(dir_full + '*detections_Filtered*.gpkg')
-    scallop_polygons = {'detected': [], 'UC_annotated': [], 'NIWA_annotated': []}
+    scallop_shapes = {'detected': [], 'UC_annotated': [], 'NIWA_annotated': []}
     for spoly_path in scallop_gpkg_paths:
         spoly_gdf = gp.read_file(spoly_path)
-        scallop_polygons["detected"].extend(list(spoly_gdf.geometry))
+        scallop_shapes["detected"].extend(list(spoly_gdf.geometry))
 
     # get include / exclude regions from viewer file
     exclude_polys = []
@@ -101,11 +101,11 @@ def process_dir(dir_name):
                 ann_layer_keys.append(label)
             for i, row in shape_layer.iterrows():
                 if isinstance(row.geometry, Polygon):
-                    scallop_polygons["UC_annotated"].append(row.geometry)
+                    scallop_shapes["UC_annotated"].append(row.geometry)
         if "live" in label.lower():
             for i, row in shape_layer.iterrows():
                 if isinstance(row.geometry, LineString):
-                    scallop_polygons["NIWA_annotated"].append(row.geometry)
+                    scallop_shapes["NIWA_annotated"].append(row.geometry)
     print(f"VPZ polygon annotation layers: {ann_layer_keys}")
     assert len(ann_layer_keys) == 1
 
@@ -159,9 +159,9 @@ def process_dir(dir_name):
     site_area = round(total_inc_area, 2)
     print(f"ROV search area = {site_area} m2")
 
-    def check_inbounds(pnt):
+    def check_inbounds(pnt, inc_polys, exc_polys):
         valid = False
-        for bound_polys, keep in [[include_polys, True], [exclude_polys, False]]:
+        for bound_polys, keep in [[inc_polys, True], [exc_polys, False]]:
             for b_poly in bound_polys:
                 if b_poly.contains(pnt):
                     valid = keep
@@ -169,30 +169,27 @@ def process_dir(dir_name):
         return valid
 
     # Filter scallops in valid survey area(s)
-    valid_scallop_polygons = {k: [] for k in scallop_polygons.keys()}
-    for key, polygons in scallop_polygons.items():
-        print(f"Total number of {key} scallops = {len(polygons)}")
-        for spoly in polygons:
+    valid_scallop_shapes = {k: [] for k in scallop_shapes.keys()}
+    for key, shapes in scallop_shapes.items():
+        print(f"Total number of {key} scallops = {len(shapes)}")
+        for s_shp in shapes:
             # Check if scallop polygon center is in ANY include area and out of ALL exclude areas
-            if check_inbounds(spoly.centroid):
-                valid_scallop_polygons[key].append(spoly)
-        print(f"Number of valid {key} scallops = {len(valid_scallop_polygons[key])}")
-
-    # test_write_gdf = gp.GeoDataFrame({'NAME': 'test', 'geometry': valid_scallop_polygons}, geometry='geometry')
-    # test_write_gdf.to_file('/csse/users/tkr25/Desktop/valid_scallops.geojson', driver='GeoJSON')
+            if check_inbounds(s_shp.centroid, include_polys, exclude_polys):
+                valid_scallop_shapes[key].append(s_shp)
+        print(f"Number of valid {key} scallops = {len(valid_scallop_shapes[key])}")
 
     # Calculate valid scallop polygon widths (annotations and detections)
-    scallop_stats = {k: {'lat': [], 'lon': [], 'width_mm': []} for k in valid_scallop_polygons}
-    for key, valid_polygons in valid_scallop_polygons.items():
+    scallop_stats = {k: {'lat': [], 'lon': [], 'width_mm': [], 'shape': []} for k in valid_scallop_shapes}
+    for key, valid_shapes in valid_scallop_shapes.items():
         width_linestrings_gps = []
-        for vspoly in valid_polygons:
-            if isinstance(vspoly, LineString):
+        for v_shp in valid_shapes:
+            if isinstance(v_shp, LineString):
                 assert key == 'NIWA_annotated'
-                line = np.array(vspoly.coords, dtype=np.float64)[:, :2]
+                line = np.array(v_shp.coords, dtype=np.float64)[:, :2]
                 max_width = np.linalg.norm(geo_utils.convert_gps2local(line[0], line[1][None]))
                 lon, lat = np.mean(line, axis=0)
             else:
-                poly_2d = np.array(vspoly.exterior.coords)[:, :2]
+                poly_2d = np.array(v_shp.exterior.coords)[:, :2]
                 poly_3d = dem_obj.poly3d_from_dem(poly_2d)
                 local_poly_3d = get_local_poly_arr_3D(poly_3d)
 
@@ -216,7 +213,7 @@ def process_dir(dir_name):
                 width_line_gps = geo_utils.convert_local2gps(poly_2d[0], width_line_local_2d)
                 width_linestrings_gps.append(LineString(width_line_gps))
 
-                poly_arr = get_poly_arr_2d(vspoly)
+                poly_arr = get_poly_arr_2d(v_shp)
                 lon, lat = np.mean(poly_arr, axis=0)
 
                 # ax = plt.axes(projection='3d')
@@ -229,12 +226,12 @@ def process_dir(dir_name):
             scallop_stats[key]['width_mm'].append(round(max_width * 1000))
             scallop_stats[key]['lat'].append(lat)
             scallop_stats[key]['lon'].append(lon)
+            scallop_stats[key]['shape'].append(v_shp)
 
-        if OUTPUT_SHAPE_LAYERS and len(width_linestrings_gps):
+        if len(width_linestrings_gps):
             labels = [str(w) + ' mm' for w in scallop_stats[key]['width_mm']]
             width_lines_gdf = gp.GeoDataFrame({'NAME': labels, 'geometry': width_linestrings_gps}, geometry='geometry')
             width_lines_gdf.set_crs(SHAPE_CRS, inplace=True)
-            file_utils.ensure_dir_exists(dir_full + 'shapes_ann')
             width_lines_gdf.to_file(dir_full + f"shapes_ann/{'width lines ' + key}.geojson", driver='GeoJSON')
 
         # CSV with every scallop detection
@@ -243,7 +240,7 @@ def process_dir(dir_name):
         #     site_dataframe.to_csv(f, header=True, index=False)
 
         # Add row in rov detection / annotation stats csv for site
-        if transect_map is None or not ONLY_IN_DIVER_SEARCH_AREA:
+        if transect_map is None:
             df_row_rov = {'area m2': [site_area],
                           'count': [len(scallop_stats[key]['width_mm'])],
                           'depth': [metadata['Depth']],
@@ -257,12 +254,42 @@ def process_dir(dir_name):
     # If paired site, read from diver data and process
     if transect_map:
         # Get relevant diver data from provided xlsx IF diver anns layer isnt in VPZ file
-        # TODO: read from shape layer instead of xlsx, make sure metadata is in layer too
+        # TODO: read diver measurements from shape layer instead of xlsx, make sure metadata is in layer too
         diver_data_xls = pd.ExcelFile(PROCESSED_BASEDIR + 'ruk2401_dive_slate_data_entry Kura Reihana.xlsx')
         survey_meas_df = pd.read_excel(diver_data_xls, 'scallop_data')
         survey_metadata_df = pd.read_excel(diver_data_xls, 'metadata')
         site_meas_df = survey_meas_df.loc[survey_meas_df['site'] == site_id]
         site_metadata_df = survey_metadata_df.loc[survey_metadata_df['site'] == site_id]
+
+        # Add row in diver stats csv for paired site
+        search_distance_left = site_metadata_df.loc[site_metadata_df['diver'].str.contains('Left')]['distance'].values[
+            0]
+        search_distance_right = \
+        site_metadata_df.loc[site_metadata_df['diver'].str.contains('Right')]['distance'].values[0]
+        total_diver_area = 1.0 * (search_distance_left + search_distance_right)
+        diver_depth = round(np.mean([np.mean(site_metadata_df[k]) for k in ['depth_s', 'depth_f']]), 2)
+        diver_bearing = round(np.mean(site_metadata_df['bearing']))
+        print(f"Diver TOTAL search area for {site_id} = {total_diver_area} m2")
+        search_poly_gps = transect_map.get_search_polygon_gps(search_distance_left, search_distance_right)
+        valid_search_polys = []
+        for inc_poly in include_polys:
+            if inc_poly.intersects(search_poly_gps):
+                intersection_poly = inc_poly.intersection(search_poly_gps)
+                if isinstance(intersection_poly, Polygon):
+                    valid_search_polys.append(intersection_poly)
+                else:
+                    valid_int_polys = [geom for geom in intersection_poly.geoms if isinstance(geom, Polygon)]
+                    valid_search_polys.extend(valid_int_polys)
+        inbounds_diver_area = 0
+        for search_poly in valid_search_polys:
+            inbounds_diver_area += get_poly_area_m2(search_poly)
+            for exc_poly in exclude_polys:
+                if exc_poly.intersects(search_poly):
+                    inbounds_diver_area -= get_poly_area_m2(exc_poly.intersection(search_poly))
+        inbounds_diver_area = round(inbounds_diver_area, 2)
+        print(f"Diver INBOUNDS search area for {site_id} = {inbounds_diver_area} m2")
+        search_gdf = gp.GeoDataFrame({'NAME': 'valid_search_area', 'geometry': valid_search_polys}, geometry='geometry')
+        search_gdf.to_file(dir_full + 'shapes_ann/valid_search_area.geojson', driver='GeoJSON')
 
         diver_points_gps = []
         diver_entries_valid = []
@@ -279,35 +306,28 @@ def process_dir(dir_name):
                 # Cant find diver measurement in transect, place outside bounds for later
                 gps_coord = metadata['lonlat'] + (70 + np.random.random((2,))) / 111e3
             diver_entries.append([t_para, t_perp, meas_width_mm])
-            diver_entries_valid.append(check_inbounds(Point(gps_coord)))
+            diver_entries_valid.append(check_inbounds(Point(gps_coord), valid_search_polys, exclude_polys))
             diver_points_gps.append(Point(gps_coord))
             diver_point_tags.append(diver_initials + ' ' + str(meas_width_mm) + ' mm')
-
         diver_entries_arr = np.array(diver_entries)
+        total_diver_count = diver_entries_arr.shape[0]
 
-        if OUTPUT_SHAPE_LAYERS:
-            diver_meas_gdf = gp.GeoDataFrame({'NAME': diver_point_tags, 'geometry': diver_points_gps,
-                                              'Dist along T': diver_entries_arr[:, 0],
-                                              'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry')
-            diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
-            file_utils.ensure_dir_exists(dir_full + 'shapes_ann')
-            diver_meas_gdf.to_file(dir_full + 'shapes_ann/Diver Measurements.geojson', driver='GeoJSON')
-
+        print(f"Diver TOTAL scallop count = {total_diver_count}")
         # Take only inbound and on-transect diver measurements
         diver_entries_arr = diver_entries_arr[diver_entries_valid]
-        total_diver_count = diver_entries_arr.shape[0]
-        # print(total_diver_count, len(diver_entries_inbounds_arr))
+        diver_points_gps = [p for i, p in enumerate(diver_points_gps) if diver_entries_valid[i]]
+        diver_point_tags = [t for i, t in enumerate(diver_point_tags) if diver_entries_valid[i]]
+        inbound_diver_count = diver_entries_arr.shape[0]
+        print(f"Diver INBOUNDS scallop count = {inbound_diver_count}")
 
-        # Add row in diver stats csv for paired site
-        search_distance_left = site_metadata_df.loc[site_metadata_df['diver'].str.contains('Left')]['distance'].values[0]
-        search_distance_right = site_metadata_df.loc[site_metadata_df['diver'].str.contains('Right')]['distance'].values[0]
-        diver_search_area = 1.0 * (search_distance_left + search_distance_right)
-        diver_depth = round(np.mean([np.mean(site_metadata_df[k]) for k in ['depth_s', 'depth_f']]), 2)
-        diver_bearing = round(np.mean(site_metadata_df['bearing']))
-        print(f"Diver TOTAL search area for {site_id} = {diver_search_area} m2")
-        print(f"Diver TOTAL scallop count = {total_diver_count}")
-        df_row_dive = {'area m2': [diver_search_area],
-                       'count': [total_diver_count],
+        diver_meas_gdf = gp.GeoDataFrame({'NAME': diver_point_tags, 'geometry': diver_points_gps,
+                                          'Dist along T': diver_entries_arr[:, 0],
+                                          'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry')
+        diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
+        diver_meas_gdf.to_file(dir_full + 'shapes_ann/Valid Diver Measurements.geojson', driver='GeoJSON')
+
+        df_row_dive = {'area m2': [inbounds_diver_area],
+                       'count': [inbound_diver_count],
                        'depth': [diver_depth],
                        'altitude': [0],
                        'm.bearing': [diver_bearing],}
@@ -319,18 +339,14 @@ def process_dir(dir_name):
         print("Converting ROV detections / annotations to transect frame and finding closest diver match")
         matched_scallop_widths = {k: [] for k in scallop_stats.keys()}
         for key, stats in scallop_stats.items():
-            in_diver_search_widths = []
+            in_search_area = []
             for lon, lat, width_rov in zip(stats['lon'], stats['lat'], stats['width_mm']):
                 res = transect_map.gps2transect((lon, lat))
                 if res is None:
                     continue
                 t_para, t_perp = res
 
-                # If within diver search area, add to "Diver search overlap" list
-                in_left_search_area = t_perp < 0 and t_para <= search_distance_left
-                in_right_search_area = t_perp >= 0 and t_para <= search_distance_right
-                if abs(t_perp) <= 1.0 and t_para >= 0.0 and (in_left_search_area or in_right_search_area):
-                    in_diver_search_widths.append(width_rov)
+                in_search_area.append(check_inbounds(Point(lon, lat), valid_search_polys, exclude_polys))
 
                 near_para = np.abs(diver_entries_arr[:, 0] - t_para) < PARA_DIST_THRESH
                 near_perp = np.abs(diver_entries_arr[:, 1] - t_perp) < PERP_DIST_THRESH
@@ -339,21 +355,26 @@ def process_dir(dir_name):
                 if num_matches != 1:
                     continue
                 # assert num_matches == 1
-                # TODO: deal with multiple matches
+                # TODO: deal with multiple (detected / annotated) <-> diver matches
                 matched_scallop_widths[key].append([width_rov, diver_entries_arr[scallop_near, 2][0]])
 
-            if ONLY_IN_DIVER_SEARCH_AREA:
-                print(f"Diver search area {key} scallop count = {len(in_diver_search_widths)}")
-                # Add row in rov detection / annotation stats csv for site
-                df_row_rov = {'area m2': [diver_search_area],
-                              'count': [len(in_diver_search_widths)],
-                              'depth': [metadata['Depth']],
-                              'altitude': [metadata['Altitude']],
-                              'm.bearing': [rov_mag_heading]}
-                rov_meas_bins_dict = bin_widths_1_150_mm(in_diver_search_widths)
-                df_row_rov.update(rov_meas_bins_dict)
-                df_row = dict(df_row_shared, **df_row_rov)
-                append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
+            rov_in_search_area_widths = [w for i, w in enumerate(stats['width_mm']) if in_search_area[i]]
+            rov_in_search_area_shapes = [s for i, s in enumerate(stats['shape']) if in_search_area[i]]
+            if len(rov_in_search_area_shapes):
+                shapes_gdf = gp.GeoDataFrame({'NAME': 'shapes_in_search_area',
+                                                  'geometry': rov_in_search_area_shapes}, geometry='geometry')
+                shapes_gdf.to_file(dir_full + f"shapes_ann/{key}_shapes_in_search_area.geojson", driver='GeoJSON')
+            print(f"Diver search area {key} scallop count = {len(rov_in_search_area_widths)}")
+            # Add row in rov detection / annotation stats csv for site
+            df_row_rov = {'area m2': [inbounds_diver_area],
+                          'count': [len(rov_in_search_area_widths)],
+                          'depth': [metadata['Depth']],
+                          'altitude': [metadata['Altitude']],
+                          'm.bearing': [rov_mag_heading]}
+            rov_meas_bins_dict = bin_widths_1_150_mm(rov_in_search_area_widths)
+            df_row_rov.update(rov_meas_bins_dict)
+            df_row = dict(df_row_shared, **df_row_rov)
+            append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
 
             matched_arr = np.array(matched_scallop_widths[key]).T
             if len(matched_arr):

@@ -225,6 +225,18 @@ class TransectMapper:
         pnt_local = closest_par_dist * seg_vec_local + transect_pnt[1] * seg_vec_local_per
         return geo_utils.convert_local2gps(gps1, np.array([pnt_local], dtype=np.float64))[0]
 
+    def get_search_polygon_gps(self, left_dist, right_dist):
+        NUM_POINTS = 50
+        left_pnts = np.stack(
+            [np.linspace(0, left_dist, NUM_POINTS, dtype=np.float64), -np.ones((NUM_POINTS,), dtype=np.float64)]).T
+        right_pnts = np.stack(
+            [np.linspace(right_dist, 0, NUM_POINTS, dtype=np.float64), np.ones((NUM_POINTS,), dtype=np.float64)]).T
+        mid_points = np.array([[left_dist, 0], [right_dist, 0]])
+        transect_polygon = np.concatenate([left_pnts, mid_points, right_pnts], axis=0)
+        search_poly_gps = [self.transect2gps(t_pnt) for t_pnt in transect_polygon]
+        search_poly_gps = Polygon([res for res in search_poly_gps if res is not None])
+        return search_poly_gps
+
 
 if __name__ == '__main__':
 
