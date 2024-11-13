@@ -478,12 +478,11 @@ def process_dir(dir_name):
             if len(matched_arr):
                 if key == "detected":
                     diver_match_idxs = matched_arr[2]
-                    diver_widths_mm = matched_arr[1]
+                    cnn_widths_mm = matched_arr[0]
                     df_row = {'site id': [site_id] * len(diver_match_idxs),
                               'match id': list(diver_match_idxs),
-                              'width mm': list(diver_widths_mm)}
+                              'width mm': list(cnn_widths_mm)}
                     append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
-
                     # TODO: append to CNN measurement csv
 
                 matched_error = matched_arr[0] - matched_arr[1]
