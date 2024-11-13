@@ -383,6 +383,13 @@ def process_dir(dir_name):
         # print(f"Diver TOTAL scallop count = {total_diver_count}")
         print(f"{GREENC}Diver VALID search area scallop count = {inbound_diver_count}{ENDC}")
 
+        if len(diver_widths_valid):
+            # TODO: needs to be in separate file for each site or not?
+            df_row = {'site id': [site_id],
+                      'match id': list(range(len(diver_widths_valid))),
+                      'width mm': diver_widths_valid}
+            append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
+
         df_row_dive = {'area m2': [inbounds_diver_area],
                        'count': [inbound_diver_count],
                        'depth': [diver_depth],
@@ -435,7 +442,8 @@ def process_dir(dir_name):
                     diver_width_mm = diver_widths_valid[scallop_near][0]
                 else:
                     diver_width_mm = diver_widths_valid[np.where(scallop_near)[0][0]]
-                matched_scallop_widths[key].append([width_rov, diver_width_mm])
+                diver_meas_idx = np.where(scallop_near)[0][0]
+                matched_scallop_widths[key].append([width_rov, diver_width_mm, diver_meas_idx])
 
             rov_in_search_area_widths = [w for i, w in enumerate(stats['width_mm']) if in_search_area[i]]
             rov_in_search_tags = [f"{key}_{str(w)}mm" for w in rov_in_search_area_widths]
@@ -468,6 +476,16 @@ def process_dir(dir_name):
 
             matched_arr = np.array(matched_scallop_widths[key]).T
             if len(matched_arr):
+                if key == "detected":
+                    diver_match_idxs = matched_arr[2]
+                    diver_widths_mm = matched_arr[1]
+                    df_row = {'site id': [site_id],
+                              'match id': list(diver_match_idxs),
+                              'width mm': list(diver_widths_mm)}
+                    append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
+
+                    # TODO: append to CNN measurement csv
+
                 matched_error = matched_arr[0] - matched_arr[1]
                 rov_count_eff_matched = matched_arr.shape[1] / inbound_diver_count
                 print(f"ROV {key} matched count efficacy = {round(rov_count_eff_matched * 100)}%")
