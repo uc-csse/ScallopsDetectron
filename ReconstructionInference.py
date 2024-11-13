@@ -22,12 +22,12 @@ IMG_RS_MOD = 2
 
 MASK_PNTS_SUB = 200
 
-EDGE_LIMIT_PIX = 200 // IMG_RS_MOD
+EDGE_LIMIT_PIX = 150 // IMG_RS_MOD
 OUTLIER_RADIUS = 0.1
 CAM_PROXIMITY_THRESH = 0.3  # m
 ELEV_MEAN_PROX_THRESH = 0.05
 
-CAM_COV_THRESHOLD = 0.01
+CAM_SPACING_THRESH = 0.05
 
 IMSHOW = False
 VTK = False
@@ -60,7 +60,7 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
-MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/tuning learning rate/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/fourth/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
@@ -71,7 +71,7 @@ model_paths.sort()
 print(f"Loading from {model_paths[-1].split('/')[-1]}")
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
@@ -113,8 +113,8 @@ def TransformPoints(pnts, transform_quart):
 
 
 def run_inference(recon_dir):
-    print(f"Running inference on {recon_dir}")
-    print("Loading Chunk Telemetry")
+    print(f"\n ----- Running CNN on {recon_dir} -----")
+
     with open(recon_dir + "chunk_telemetry.pkl", "rb") as pkl_file:
         chunk_telem = pickle.load(pkl_file)
         chunk_scale = chunk_telem['0']['scale']
@@ -122,7 +122,6 @@ def run_inference(recon_dir):
         # print(chunk_telem['0']['geoccs'])
         # print(chunk_telem['0']['geogcs'])
 
-    print("Loading Camera Telemetry")
     with open(recon_dir + "camera_telemetry.pkl", "rb") as pkl_file:
         camera_telem = pickle.load(pkl_file)
 
@@ -132,20 +131,24 @@ def run_inference(recon_dir):
     gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
     cnt = 0
     sensor_keys = []
+    prev_cam_loc = np.array((3,), dtype=np.float64)
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cnt += 1
         sensor_key = cam_label.split('-')[0]
         if sensor_key not in sensor_keys:
             sensor_keys.append(sensor_key)
-        # if cnt < 1000:
-        #     continue
-        # if cnt > 1300:
-        #     break
         cam_quart = cam_telem['q44']
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
-        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
+        cam_loc = cam_quart[:3, 3]
+        dist_since_last = np.linalg.norm(cam_loc - prev_cam_loc)
+        if dist_since_last < CAM_SPACING_THRESH / chunk_scale:
             continue
+        # cam_pos_score = 1.0 - min(0.9, chunk_scale**2 * xyz_cov_mean / CAM_COV_THRESHOLD)
+        # print(chunk_scale)
+        # print("COV mean: ", chunk_scale**2 * xyz_cov_mean)
+        # print(cam_pos_score)
+        prev_cam_loc = cam_loc
 
         img_shape = cam_telem['shape']
         cimg_path = cam_telem['cpath']
@@ -174,6 +177,8 @@ def run_inference(recon_dir):
             img_depth_np = np.load(recon_dir + dimg_path)
         else:
             img_depth_u16 = cv2.imread(depth_img_path, cv2.IMREAD_ANYDEPTH)
+            if img_depth_u16 is None:
+                continue
             scale = float(depth_img_path.split('/')[-1].split('_')[-1][:-4])
             img_depth_np = scale * img_depth_u16.astype(np.float32)
 
@@ -220,8 +225,6 @@ def run_inference(recon_dir):
                 scallop_polygon_ud = scallop_polygon_ud[valid_indices]
                 scallop_poly_cam = CamPixToRay(scallop_polygon_ud.T, camMtx) * vert_elevations.T
 
-                # TODO: flatten detection
-
                 num_mask_pixs = len(mask_pnts)
                 if num_mask_pixs < MASK_PNTS_SUB:
                     continue
@@ -234,20 +237,14 @@ def run_inference(recon_dir):
                 scallop_pnts_cam = spf.remove_outliers(scallop_pnts_cam, OUTLIER_RADIUS / chunk_scale)
                 if scallop_pnts_cam.shape[1] < 10:
                     continue
-                scallop_pnts_chunk = CamToChunk(scallop_pnts_cam, cam_quart)
-                scallop_center_chunk = scallop_pnts_chunk.mean(axis=1)
-
-                scallop_center_cam = scallop_poly_cam.mean(axis=1)
-                cam_center_offset_cos = scallop_center_cam[2] / (np.linalg.norm(scallop_center_cam)+1e-32)
-                cam_center_offset_cos = -1 if np.isnan(cam_center_offset_cos) else cam_center_offset_cos
 
                 scallop_polygon_chunk = CamToChunk(scallop_poly_cam, cam_quart)
                 scallop_polygon_geocentric = TransformPoints(scallop_polygon_chunk, chunk_transform)
                 scallop_polygon_geodetic = np.apply_along_axis(gcs2ccs, 1, scallop_polygon_geocentric.T)
-                prediction_geometries.append(Polygon(scallop_polygon_geodetic))
+                scallop_polygon_shapely = Polygon(scallop_polygon_geodetic).simplify(tolerance=0.001 / 111e3, preserve_topology=True)
+                prediction_geometries.append(scallop_polygon_shapely)
                 prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
-                prediction_labels.append(str({"label": "live", "conf": round(score.item(), 2),
-                                              "cntr_cos": round(cam_center_offset_cos, 2)}))
+                prediction_labels.append(str(round(score.item(), 2)))
 
                 if IMSHOW and scallop_pnts_cam.shape[1] > 1:
                     pc_vecs, pc_lengths, center_pnt = spf.pca(scallop_pnts_cam.T)
@@ -313,6 +310,7 @@ def run_inference(recon_dir):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
+    data_dirs = data_dirs[20:]
     for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break

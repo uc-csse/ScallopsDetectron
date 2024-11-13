@@ -39,7 +39,7 @@ def setup(args):
     cfg.SOLVER.BASE_LR = 0.01
     cfg.SOLVER.GAMMA = 0.1
     # The iteration number to decrease learning rate by GAMMA.
-    cfg.SOLVER.STEPS = (1000,)
+    cfg.SOLVER.STEPS = (2000,)
     cfg.SOLVER.MAX_ITER = 10000
 
     cfg.SOLVER.MOMENTUM = 0.9
@@ -52,8 +52,8 @@ def setup(args):
     cfg.DATASETS.TRAIN = train_dirs
     cfg.DATASETS.TEST = valid_dirs
     cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS = False  # Use all images including those without scallops
-    cfg.TEST.EVAL_PERIOD = 100
-    cfg.DATALOADER.NUM_WORKERS = 10 * cfg.NUM_GPUS
+    cfg.TEST.EVAL_PERIOD = 400
+    cfg.DATALOADER.NUM_WORKERS = 4 * cfg.NUM_GPUS
 
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
     cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0

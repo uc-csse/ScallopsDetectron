@@ -7,7 +7,9 @@ TIFF_PAGE = 2
 
 class DEM:
     def __init__(self, tiff_dir):
-        dem_tiff_paths = glob.glob(tiff_dir + '*-dem-*.tif')
+        dem_tiff_paths = glob.glob(tiff_dir + '*-dem-*.tif') + glob.glob(tiff_dir + '*-dem.tif')
+        if len(dem_tiff_paths) == 0:
+            raise Exception("No DEM tiffs found!")
         self.dem_imgs = []
         self.dem_res_gps = []
         ortho_lonlats = []
@@ -20,7 +22,7 @@ class DEM:
             ortho_lonlat = np.array(ortho_tiepoint)[3:5]
             ortho_lonlats.append(ortho_lonlat)  # Top left
             res_xy_m = geo_utils.convert_gps2local(ortho_lonlat, [ortho_lonlat + np.array(self.dem_res_gps[-1])])[0]
-            print(f"Tiff {tif_pth.split('/')[-1]} page {TIFF_PAGE}, res [m] = {np.round(res_xy_m, 4)}")
+            # print(f"Tiff {tif_pth.split('/')[-1]} page {TIFF_PAGE}, res [m] = {np.round(res_xy_m, 4)}")
         self.ortho_lonlats = np.array(ortho_lonlats)
 
     def get_elevation_gps(self, gps_pnt):
@@ -30,8 +32,11 @@ class DEM:
         vec_gps[np.where(vec_gps[:, 1] > 0), :] = 100
         tiff_idx = np.argmin(np.abs(vec_gps).sum(axis=1))
         pix_idx = (np.array([1, -1]) * vec_gps[tiff_idx] / self.dem_res_gps[tiff_idx])[::-1].astype(int)
-        elevation = self.dem_imgs[tiff_idx][tuple(pix_idx)]
-        return elevation
+        dem_tile = self.dem_imgs[tiff_idx]
+        if not (pix_idx[0] < dem_tile.shape[0] and pix_idx[1] < dem_tile.shape[1]):
+            print(f"Pix idx: {pix_idx} not in DEM! Clipping...")
+        pix_idx = np.clip(pix_idx, (0, 0), (dem_tile.shape[0]-1, dem_tile.shape[1]-1))
+        return dem_tile[tuple(pix_idx)]
 
     def poly3d_from_dem(self, polygon_2d):
         polygon_3d = []

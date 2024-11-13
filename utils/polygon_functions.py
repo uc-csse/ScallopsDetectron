@@ -2,29 +2,63 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 from shapely.geometry import *
-import re
 import math
 from utils import geo_utils
+import matplotlib.pyplot as plt
 
-RNN_DISTANCE = 0.030
 SCALLOP_MAX_SIZE = 0.15
 
-CLUSTER_CNT_THRESH = 2
-CENTROID_ERR_THRESH = 0.05  # Threshold distance of centroid to cluster centroid to be inlier
+def get_avg_plane_normal(poly):
+    NUM_ITTS = 100
+    norm_vecs = np.zeros((NUM_ITTS, 3), dtype=np.float64)
+    for itt in range(NUM_ITTS):
+        pts = poly[np.random.randint(poly.shape[0], size=3)]
+        norm_vec = np.cross(pts[0]-pts[1], pts[0]-pts[2])
+        norm_vec *= np.sign(norm_vec[2])
+        norm_vecs[itt] = norm_vec / (np.linalg.norm(norm_vec) + 1e-64)
+    avg_norm_vec = np.mean(norm_vecs, axis=0)
+    return avg_norm_vec / np.linalg.norm(avg_norm_vec)
 
-CNN_CONF_THRESH = 0.5
+def get_rot_3pt(pts):
+    x_vec = pts[0]-pts[1]
+    z_vec = np.cross(x_vec, pts[0]-pts[2])
+    y_vec = np.cross(z_vec, x_vec)
+    mat = np.stack([x_vec, y_vec, z_vec]).T
+    mat /= np.linalg.norm(mat, axis=0) + 1e-64
+    return mat
 
-def filter_polygon_detections(polygon_detections):
-    # Filter on polygon contour shape, CNN confidence, symmetry in width dimension, convexity, curve, pca statistics
-    valid_polygons = []
-    invalid_polygons = []
-    for polygon, conf in polygon_detections:
-        eig_vecs, eig_vals, center_pnt = pca(polygon)
-        if is_scallop_eigs(eig_vals) and conf > CNN_CONF_THRESH:
-            valid_polygons.append(polygon)
-        else:
-            invalid_polygons.append(polygon)
-    return np.array(valid_polygons, dtype=object), np.array(invalid_polygons, dtype=object)
+def convolve_z(poly, conv_size=21):
+    KERNEL = np.ones((conv_size,), dtype=np.float64) / conv_size
+    CONV_OFFSET = conv_size // 2
+    polyz_extended = np.concatenate([poly[-CONV_OFFSET:, 2], poly[:, 2], poly[:CONV_OFFSET, 2]])
+    polyz_convolved = np.convolve(polyz_extended, KERNEL, 'valid')
+    poly[:, 2] = polyz_convolved
+    return poly
+
+def plane_ransac_filter(poly, max_num_itts=200, threshold_dist=0.002, frac_thresh_cutoff=0.8, scale=1.0, flatten=False):
+    highest_consensus_frac = 0
+    best_fit_polygon = poly.copy()
+    center_pnt = np.mean(poly, axis=0)
+    for itt in range(max_num_itts):
+        rand_idxs = np.random.randint(poly.shape[0], size=3)
+        rand_pnts = poly[rand_idxs]
+        rot_mat = get_rot_3pt(rand_pnts)
+        if np.linalg.matrix_rank(rot_mat) != 3:
+            continue
+        inv_mat = rot_mat.T
+        poly_principal = np.matmul(inv_mat, (poly - center_pnt).T).T
+        good_vert_mask = np.abs(poly_principal[:, 2]) < (threshold_dist / scale)
+        consensus_frac = good_vert_mask.sum() / poly.shape[0]
+        if consensus_frac > highest_consensus_frac:
+            highest_consensus_frac = consensus_frac
+            if flatten:
+                poly_principal[:, 2] = 0.0
+            else:
+                poly_principal[np.logical_not(good_vert_mask), 2] = 0.0
+            best_fit_polygon = (np.matmul(rot_mat, poly_principal.T).T + center_pnt)
+            if highest_consensus_frac > frac_thresh_cutoff:
+                break
+    return best_fit_polygon
 
 FOV_MUL = 1.2
 
@@ -43,30 +77,6 @@ def in_camera_fov(polygon_cam, cam_fov, tol_deg=10):
     polygon_center = np.mean(polygon_cam, axis=1)
     return pnt_in_cam_fov(polygon_center, cam_fov, tol=tol_deg)
 
-def is_scallop_eigs(pca_eigen_values):
-    w_to_l = pca_eigen_values[0] / pca_eigen_values[1]
-    scallop_plane_h_d = pca_eigen_values[2]
-    return w_to_l > 1.0 and w_to_l < 3 and scallop_plane_h_d < 0.110
-
-def filter_clusters(clusters):
-    # Filter on cluster cnt, polygon area consistency
-    valid_clusters = []
-    invalid_clusters = []
-    for cluster in clusters:
-        # filter polygons inside cluster
-        # polygon_centroids = [np.mean(poly, axis=0) for poly in cluster]
-        # cluster_centroid = np.mean(polygon_centroids, axis=0)
-        # cluster_width = calc_cluster_widths([cluster], mode='max')
-        # centroid_dist = np.linalg.norm(polygon_centroids - cluster_centroid, axis=1)
-        # inlier_cluster =
-        # print(cluster_centroid)
-        # CENTROID_ERR_THRESH
-        if len(cluster) >= CLUSTER_CNT_THRESH:
-            valid_clusters.append(cluster)
-        else:
-            invalid_clusters.append(cluster)
-    return valid_clusters, invalid_clusters
-
 PC_MUL = 1.9
 def polygon_PCA_width(polygon):
     pc_vecs, pc_lengths, center_pnt = pca(polygon)
@@ -78,6 +88,23 @@ def polygon_max_width(polygon):
     scallop_vert_mat = np.repeat(polygon[None], polygon.shape[0], axis=0)
     scallop_vert_dists = np.linalg.norm(scallop_vert_mat - scallop_vert_mat.transpose([1, 0, 2]), axis=2)
     return np.max(scallop_vert_dists)
+
+def cluster_avg_polygon(cluster, polygon_scores):
+    cluster_linstrings = [LineString(np.concatenate([poly, poly[:1]], axis=0)) for poly in cluster]
+    c = np.concatenate(cluster, axis=0).mean(axis=0)[:2]
+    avg_points = []
+    radial_errs = []
+    for theta in np.linspace(0, 2*np.pi, num=100):
+        ray = LineString([c, c + 0.2 * np.array([np.sin(theta), np.cos(theta)])])
+        intersection_pnt_sum = np.zeros((3,))
+        score_sum = 1e-32
+        for poly, score in zip(cluster_linstrings, polygon_scores):
+            int_pnts = ray.intersection(poly)
+            if isinstance(int_pnts, Point):
+                intersection_pnt_sum += score * np.array(int_pnts.coords[0])
+                score_sum += score
+        avg_points.append(intersection_pnt_sum / score_sum)
+    return np.array(avg_points)
 
 def calc_cluster_widths(polygon_clusters, mode=None):
     cluster_widths_l = []
@@ -98,30 +125,21 @@ def get_next_seed_index(mask_arr):
         if val == True:
             return i
 
-def rnn_clustering(point_groups):
-    unclustered_mask = np.ones((len(point_groups),)).astype(np.bool)
+def rnn_clustering(point_groups, rnn_distance):
+    unclustered_mask = np.ones((len(point_groups),)).astype(bool)
     neighbourhood_mask = unclustered_mask.copy()
-    centers = np.array([np.mean(poly, axis=0) for poly in point_groups])
+    centers = np.array([np.mean(poly[:, :2], axis=0) for poly in point_groups])
     cluster_indexes = []
     while any(unclustered_mask):
         seed_center = centers[get_next_seed_index(unclustered_mask)]
         for i in range(2):
             unclst_dists = np.linalg.norm(centers - seed_center, axis=1)
-            neighbourhood_mask = (unclst_dists < RNN_DISTANCE) * unclustered_mask
+            neighbourhood_mask = (unclst_dists < rnn_distance) * unclustered_mask
             seed_center = np.mean(centers[neighbourhood_mask], axis=0)
         neighbour_idxs = np.where(neighbourhood_mask)[0]
         cluster_indexes.append(neighbour_idxs)
         unclustered_mask[neighbour_idxs] = False
     return cluster_indexes
-
-def polygon_rnn_clustering(polygons, labels):
-    cluster_idxs = rnn_clustering(polygons)
-    polygon_clusters = []
-    clustered_labels = []
-    for neighbour_idxs in cluster_idxs:
-        polygon_clusters.append([polygons[idx] for idx in neighbour_idxs])
-        clustered_labels.append([labels[idx] for idx in neighbour_idxs])
-    return polygon_clusters, clustered_labels
 
 def UpsamplePoly(polygon, num=10):
     poly_ext = np.append(polygon, [polygon[0, :]], axis=0)
@@ -170,6 +188,21 @@ def polyline_dist_thresh(pnt, polyline, thresh):
         if dist < thresh:
             return True
     return False
+
+def get_poly_arr_2d(poly):
+    return np.array(poly.exterior.coords)[:, :2]
+
+def get_local_poly_arr(poly_gps):
+    poly_arr_2d = get_poly_arr_2d(poly_gps)
+    poly_arr_m = geo_utils.convert_gps2local(poly_arr_2d[0], poly_arr_2d)
+    return poly_arr_m
+
+def get_local_poly_arr_3D(poly_gps):
+    poly_arr_m = geo_utils.convert_gps2local(poly_gps[0], poly_gps)
+    return poly_arr_m
+
+def get_poly_area_m2(poly_gps):
+    return Polygon(get_local_poly_arr(poly_gps)).area
 
 def pnt2lineseg_dist(point, line):
     # unit vector

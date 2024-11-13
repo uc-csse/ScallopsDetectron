@@ -12,7 +12,7 @@ from utils import maskrcnn_setup, train_net, file_utils, augmentations as A
 from CreateDatasets import CNN_INPUT_SHAPE
 
 WRITE = True
-RESUME = False
+RESUME = True
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
@@ -45,12 +45,16 @@ augmentation_sets = [augs]
 # train_dataset_1 = [BASE_DIR+'ScallopReconstructions/'+dir for dir in ['gopro_119/left']]
 # train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
 #                             ]
-valid_dataset_1 = ['240713-104835', '240714-084519', '240617-132136', '240617-080551', '240616-082046',
-                   '240713-134608', '240618-090121', '240714-140552']
+# TODO: Dont use validation set in training or testing outputs
+valid_dataset_1 = ['240713-134608', '240620-135134', '240714-113449', '240615-144558', '240617-080551', '240617-132136',
+                   '240714-084519', '240713-104835', '240621-082509', '240616-082046', '240618-090121', '240714-140552',
+                   '240617-112604', '240616-132704', '240616-105315', '240713-082638', '240618-115508',]
+
 valid_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in valid_dataset_1]
-train_dataset_1 = ['240628-073947', '240629-100813', '240630-065651', '240629-152334', '240626-082107', '240628-084724',
-                   '240629-105107', '240627-113019', '240626-154500', '240629-121748', '240607-093240', '240628-080625',
-                   '240626-162116', '240626-165556', '240626-101911']
+train_dataset_1 = ['240628-073947', '240630-065651', '240629-152334', '240626-082107', '240628-084724', '240629-134014',
+                   '240629-105107', '240627-113019', '240626-154500', '240629-121748', '240626-162116', '240626-165556',
+                   '240626-101911', '240607-093240',
+                   '240605-092733', '240620-123219', '240619-104223', '240712-111940', '240604-133813', '240710-132415']
 train_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in train_dataset_1]
 datasets = [[train_dataset_1, valid_dataset_1]]
 
