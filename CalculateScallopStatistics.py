@@ -385,7 +385,7 @@ def process_dir(dir_name):
 
         if len(diver_widths_valid):
             # TODO: needs to be in separate file for each site or not?
-            df_row = {'site id': [site_id],
+            df_row = {'site id': [site_id] * len(diver_widths_valid),
                       'match id': list(range(len(diver_widths_valid))),
                       'width mm': diver_widths_valid}
             append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
@@ -479,7 +479,7 @@ def process_dir(dir_name):
                 if key == "detected":
                     diver_match_idxs = matched_arr[2]
                     diver_widths_mm = matched_arr[1]
-                    df_row = {'site id': [site_id],
+                    df_row = {'site id': [site_id] * len(diver_match_idxs),
                               'match id': list(diver_match_idxs),
                               'width mm': list(diver_widths_mm)}
                     append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
