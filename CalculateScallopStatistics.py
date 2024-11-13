@@ -410,6 +410,7 @@ def process_dir(dir_name):
         matched_scallop_widths = {k: [] for k in scallop_stats.keys()}
         for key, stats in scallop_stats.items():
             in_search_area = []
+            unmatched_widths = []
             false_positive_num = 0
             # if key != 'detected':
             #     continue
@@ -431,6 +432,8 @@ def process_dir(dir_name):
                 num_matches = np.sum(scallop_near)
                 if num_matches == 0:
                     false_positive_num += int(is_inbounds)
+                    if is_inbounds:
+                        unmatched_widths.append(width_rov)
                     continue
                 if num_matches > 1:
                     false_positive_num += int(is_inbounds)
@@ -479,9 +482,10 @@ def process_dir(dir_name):
                 if key == "detected":
                     diver_match_idxs = matched_arr[2]
                     cnn_widths_mm = matched_arr[0]
-                    df_row = {'site id': [site_id] * len(diver_match_idxs),
-                              'match id': list(diver_match_idxs),
-                              'width mm': list(cnn_widths_mm)}
+                    total_detected = len(diver_match_idxs) + len(unmatched_widths)
+                    df_row = {'site id': [site_id] * total_detected,
+                              'match id': list(diver_match_idxs) + [-1]*len(unmatched_widths),
+                              'width mm': list(cnn_widths_mm) + unmatched_widths}
                     append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
                     # TODO: append to CNN measurement csv
 
