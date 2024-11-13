@@ -383,13 +383,6 @@ def process_dir(dir_name):
         # print(f"Diver TOTAL scallop count = {total_diver_count}")
         print(f"{GREENC}Diver VALID search area scallop count = {inbound_diver_count}{ENDC}")
 
-        if len(diver_widths_valid):
-            # TODO: needs to be in separate file for each site or not?
-            df_row = {'site id': [site_id] * len(diver_widths_valid),
-                      'match id': list(range(len(diver_widths_valid))),
-                      'width mm': diver_widths_valid}
-            append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
-
         df_row_dive = {'area m2': [inbounds_diver_area],
                        'count': [inbound_diver_count],
                        'depth': [diver_depth],
@@ -479,15 +472,23 @@ def process_dir(dir_name):
 
             matched_arr = np.array(matched_scallop_widths[key]).T
             if len(matched_arr):
+
+                # Output raw data for false positive false negative
                 if key == "detected":
-                    diver_match_idxs = matched_arr[2]
-                    cnn_widths_mm = matched_arr[0]
+                    diver_match_idxs = list(matched_arr[2])
+                    cnn_widths_mm = list(matched_arr[0])
                     total_detected = len(diver_match_idxs) + len(unmatched_widths)
                     df_row = {'site id': [site_id] * total_detected,
-                              'match id': list(diver_match_idxs) + [-1]*len(unmatched_widths),
-                              'width mm': list(cnn_widths_mm) + unmatched_widths}
+                              'match id': diver_match_idxs + [-1]*len(unmatched_widths),
+                              'width mm': cnn_widths_mm + unmatched_widths}
                     append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
-                    # TODO: append to CNN measurement csv
+                    if len(diver_widths_valid):
+                        diver_measurement_ids = list(range(len(diver_widths_valid)))
+                        diver_measurement_ids = [id if id in diver_match_idxs else -1 for id in diver_measurement_ids]
+                        df_row = {'site id': [site_id] * len(diver_widths_valid),
+                                  'match id': diver_measurement_ids,
+                                  'width mm': diver_widths_valid}
+                        append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
 
                 matched_error = matched_arr[0] - matched_arr[1]
                 rov_count_eff_matched = matched_arr.shape[1] / inbound_diver_count
@@ -529,6 +530,12 @@ if __name__ == "__main__":
             dirs_list = f.readlines()
     # dirs_list = dirs_list[132:]
     # dirs_list = ['240713-134608\n']
+
+    if os.path.isfile(PROCESSED_BASEDIR + 'individual_diver_measurements.csv'):
+        os.remove(PROCESSED_BASEDIR + 'individual_diver_measurements.csv')
+    if os.path.isfile(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv'):
+        os.remove(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv')
+
     for dir_entry in dirs_list:
         if len(dir_entry) == 1 or '#' in dir_entry:
             continue
