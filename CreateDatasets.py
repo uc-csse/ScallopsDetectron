@@ -137,7 +137,7 @@ def create_dataset(dirname):
         # Check camera accuracy
 
         print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
-        
+
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             continue
 
@@ -227,8 +227,7 @@ def create_dataset(dirname):
         if skip_num < NON_SCALLOP_DOWNSAMPLE and not scallop_in_img:
             skip_num += 1
             continue
-        if skip_num >= NON_SCALLOP_DOWNSAMPLE:
-            skip_num = 0
+        skip_num = 0
 
         img_fn = cam_label + '.jpeg'
         img_ds_fpath = data_dir + dataset_name + '/' + img_fn

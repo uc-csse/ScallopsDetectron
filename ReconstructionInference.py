@@ -34,6 +34,8 @@ VTK = False
 WAITKEY = 0
 YAPPI_PROFILE = False
 
+OUTPUT_FOV_SHAPES = True
+
 SHAPE_CRS = "EPSG:4326"
 
 if YAPPI_PROFILE:
@@ -132,6 +134,7 @@ def run_inference(recon_dir):
     gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
     cnt = 0
     sensor_keys = []
+    cam_fov_polys = []
     prev_cam_loc = np.array((3,), dtype=np.float64)
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cnt += 1
@@ -145,6 +148,7 @@ def run_inference(recon_dir):
         dist_since_last = np.linalg.norm(cam_loc - prev_cam_loc)
         if dist_since_last < CAM_SPACING_THRESH / chunk_scale:
             continue
+
         # cam_pos_score = 1.0 - min(0.9, chunk_scale**2 * xyz_cov_mean / CAM_COV_THRESHOLD)
         # print(chunk_scale)
         # print("COV mean: ", chunk_scale**2 * xyz_cov_mean)
@@ -187,6 +191,16 @@ def run_inference(recon_dir):
         # img_depth_np = cv2.blur(img_depth_np, ksize=(11, 11))
 
         edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_size[0]-EDGE_LIMIT_PIX, rs_size[1]-EDGE_LIMIT_PIX)
+
+        if OUTPUT_FOV_SHAPES:
+            fov_rect = np.array([[0, 0], [0, rs_size[0]], [rs_size[1], 0], [rs_size[1], rs_size[0]]])
+            fov_rect_ud = spf.undistort_pixels(fov_rect, camMtx, camDist).astype(np.int32)
+            avg_z = img_depth_np[::100, ::100].mean()
+            fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
+            fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
+            fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
+            fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
+            cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
 
         if IMSHOW:
             v = Visualizer(img_rs[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
@@ -306,6 +320,11 @@ def run_inference(recon_dir):
             new_geo.append(Polygon(lines))
     gdf.geometry = new_geo
     gdf.to_file(shapes_fn + '_2D.gpkg')
+
+    if OUTPUT_FOV_SHAPES:
+        cam_fov_gdf = gpd.GeoDataFrame({'geometry': cam_fov_polys, 'NAME': ''},
+                                        geometry='geometry', crs=SHAPE_CRS)
+        cam_fov_gdf.to_file(recon_dir + 'shapes_pred/cam_fov_rects_2d.gpkg')
 
 
 if __name__ == "__main__":

@@ -3,16 +3,15 @@ import FilterPredictions
 import CalculateScallopStatistics
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
-PROCESSED_BASEDIR = "/media/tim/ExtremeSSD/data/"
 
-TODO_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_inference_todo.txt'
+TODO_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'  # 'dirs_inference_todo.txt'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_inference_done.txt'
 
 EDIT_TXTS = False
 
 
 if __name__ == '__main__':
-    idx = 0
+    idx = 43
     while True:
         # Pop first directory from to-do file
         with open(TODO_DIRS_FILE, 'r') as todo_file:
@@ -39,4 +38,4 @@ if __name__ == '__main__':
         FilterPredictions.process_dir(PROCESSED_BASEDIR + data_dir)
         CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR + data_dir)
 
-        # break
+        break
