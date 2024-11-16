@@ -38,7 +38,7 @@ no_augs = []  # transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
            #  transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 EXP_START_IDX = 0
-experiment_titles = ["fourth",]
+experiment_titles = ["fifth",]
 augmentation_sets = [augs]
 
 # valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
