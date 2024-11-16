@@ -12,7 +12,7 @@ from utils import maskrcnn_setup, train_net, file_utils, augmentations as A
 from CreateDatasets import CNN_INPUT_SHAPE
 
 WRITE = True
-RESUME = True
+RESUME = False
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
@@ -53,9 +53,9 @@ valid_dataset_1 = ['240713-134608', '240620-135134', '240714-113449', '240615-14
 valid_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in valid_dataset_1]
 train_dataset_1 = ['240628-073947', '240630-065651', '240629-152334', '240626-082107', '240628-084724', '240629-134014',
                    '240629-105107', '240627-113019', '240626-154500', '240629-121748', '240626-162116', '240626-165556',
-                   '240626-101911', '240607-093240', '240605-092733', '240620-123219', '240629-100813', '240605-092733',
-                   '240625-110542', '240625-125205', '240629-093514', '240629-092634', '240619-104223', '240710-132415',
-                   '240604-133813', '240712-111940']
+                   '240626-101911', '240607-093240', '240605-092733', '240620-123219', '240629-100813', '240625-110542',
+                   '240625-125205', '240629-093514', '240629-092634', '240619-104223', '240710-132415', '240604-133813',
+                   '240712-111940']
 
 train_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in train_dataset_1]
 datasets = [[train_dataset_1, valid_dataset_1]]
