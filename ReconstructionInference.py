@@ -192,7 +192,8 @@ def run_inference(base_dir, dirname):
         if OUTPUT_FOV_SHAPES:
             fov_rect = np.array([[0, 0], [rs_size[0], 0], [rs_size[0], rs_size[1]], [0, rs_size[1]]])
             fov_rect_ud = spf.undistort_pixels(fov_rect, camMtx, camDist).astype(np.int32)
-            avg_z = img_depth_np[::100, ::100].mean()
+            depth_img_sample = img_depth_np[::100, ::100]
+            avg_z = depth_img_sample[np.where(depth_img_sample > 0)].mean()
             fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
             fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
             fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
