@@ -114,8 +114,9 @@ def TransformPoints(pnts, transform_quart):
     return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
 
 
-def run_inference(recon_dir):
-    print(f"\n ----- Running CNN on {recon_dir} -----")
+def run_inference(base_dir, dirname):
+    recon_dir = base_dir + dirname + '/'
+    print(f"\n ----- Running CNN on {dirname} -----")
 
     with open(recon_dir + "chunk_telemetry.pkl", "rb") as pkl_file:
         chunk_telem = pickle.load(pkl_file)
@@ -163,7 +164,6 @@ def run_inference(recon_dir):
 
         outputs = predictor(img_rs)
         instances = outputs["instances"].to("cpu")
-
         masks = instances._fields['pred_masks']
         bboxes = instances._fields['pred_boxes']
         scores = instances._fields['scores']
@@ -197,8 +197,8 @@ def run_inference(recon_dir):
             fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
             fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
             fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
-            cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
-        
+            cam_fov_polys.append(Polygon(fov_rect_geodetic))  # [:, :2]
+
         if len(masks) == 0:
             continue
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
         # Check if this is a valid directory that needs processing
         if len(dir_line) == 1 or '#' in dir_line:
             continue
-        data_dir = dir_line.split(' ')[0][:13] + '/'
+        data_dir = dir_line[:13]
 
         # Process this directory
-        run_inference(PROCESSED_BASEDIR + data_dir)
+        run_inference(PROCESSED_BASEDIR, data_dir)

@@ -60,8 +60,8 @@ def append_to_csv(filepath, df):
         df.to_csv(f, header=not csv_exists, index=False)
 
 
-def process_dir(dir_name):
-    dir_full = PROCESSED_BASEDIR + dir_name + '/'
+def process_dir(base_dir, dir_name):
+    dir_full = base_dir + dir_name + '/'
     print(f"\n------------ Calculating Statistics for {dir_name} ------------")
 
     print("Initialising DEM Reader")
@@ -542,10 +542,12 @@ if __name__ == "__main__":
         if 'STOP' in dir_entry:
             break
         dir_name = dir_entry[:13]
-        # process_dir(dir_name)
-        try:
-            process_dir(dir_name)
-        except Exception as e:
-            print(e)
+
+        process_dir(PROCESSED_BASEDIR, dir_name)
+
+        # try:
+        #     process_dir(PROCESSED_BASEDIR, dir_name)
+        # except Exception as e:
+        #     print(e)
 
        #  break

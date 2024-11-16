@@ -35,8 +35,8 @@ CLUSTER_TOPN_SCORE_THRESH = 0.80 * CLUSTER_TOP_N  # threshold for sum of top N s
 SHAPE_SCORE_MUL = 0.5
 
 
-def process_dir(dirname):
-    recon_dir = PROCESSED_BASEDIR + dirname + '/'
+def process_dir(base_dir, dirname):
+    recon_dir = base_dir + dirname + '/'
     print(f"----------- Filtering {dirname} -----------")
     shape_file_3D = glob.glob(recon_dir + 'shapes_pred/*3D.gpkg')
 
@@ -144,7 +144,10 @@ if __name__ == "__main__":
         if len(dir_line) == 1 or '#' in dir_line:
             continue
         data_dir = dir_line[:13]
-        try:
-            process_dir(data_dir)
-        except:
-            pass
+
+        process_dir(PROCESSED_BASEDIR, data_dir)
+
+        # try:
+        #     process_dir(PROCESSED_BASEDIR, data_dir)
+        # except:
+        #     pass

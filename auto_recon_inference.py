@@ -35,7 +35,7 @@ if __name__ == '__main__':
         data_dir = dir_line[:13] + '/'
 
         ReconstructionInference.run_inference(PROCESSED_BASEDIR + data_dir)
-        FilterPredictions.process_dir(PROCESSED_BASEDIR + data_dir)
+        FilterPredictions.process_dir(data_dir)
         CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR + data_dir)
 
         break
