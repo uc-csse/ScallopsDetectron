@@ -12,7 +12,7 @@ from utils import maskrcnn_setup, train_net, file_utils, augmentations as A
 from CreateDatasets import CNN_INPUT_SHAPE
 
 WRITE = True
-RESUME = False
+RESUME = True
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
