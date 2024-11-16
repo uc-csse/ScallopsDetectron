@@ -16,7 +16,7 @@ from shapely.geometry import *
 DISPLAY = False
 WAITKEY = 0
 
-CAM_COV_THRESHOLD = 0.02
+CAM_COV_THRESHOLD = 0.01
 
 CAM_SCALLOP_DIST_THRESH = 2.0
 CAM_SCALLOP_Z_THRESH = 2.0
@@ -136,7 +136,7 @@ def create_dataset(dirname):
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
         # Check camera accuracy
 
-        print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
+        # print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
 
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             print("Bad camera covariance, skipping.")
@@ -282,3 +282,5 @@ if __name__ == '__main__':
         ret = create_dataset(data_dir)
         if ret:
             datasets_created.append(data_dir[:-1])
+
+    print(datasets_created)
