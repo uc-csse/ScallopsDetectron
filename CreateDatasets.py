@@ -139,6 +139,7 @@ def create_dataset(dirname):
         print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
 
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
+            print("Bad camera covariance, skipping.")
             continue
 
         # Check camera center is inside include area and outside all exclude areas (with buffer)

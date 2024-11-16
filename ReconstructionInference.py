@@ -198,7 +198,7 @@ def run_inference(base_dir, dirname):
             fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
             fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
             fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
-            cam_fov_polys.append(Polygon(fov_rect_geodetic))  # [:, :2]
+            cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
 
         if len(masks) == 0:
             continue
