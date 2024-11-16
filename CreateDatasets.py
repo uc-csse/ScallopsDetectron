@@ -135,6 +135,9 @@ def create_dataset(dirname):
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
         # Check camera accuracy
+
+        print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
+        
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
             continue
 

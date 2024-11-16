@@ -61,6 +61,7 @@ PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
 MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/fourth/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/media/tim/ExtremeSSD/cnn/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
