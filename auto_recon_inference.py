@@ -32,10 +32,10 @@ if __name__ == '__main__':
         # Check if this is a valid directory that needs processing
         if len(dir_line) == 1 or '#' in dir_line:
             continue
-        data_dir = dir_line[:13] + '/'
+        data_dir = dir_line[:13]
 
-        ReconstructionInference.run_inference(PROCESSED_BASEDIR + data_dir)
-        FilterPredictions.process_dir(data_dir)
-        CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR + data_dir)
+        ReconstructionInference.run_inference(PROCESSED_BASEDIR, data_dir)
+        FilterPredictions.process_dir(PROCESSED_BASEDIR, data_dir)
+        CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR, data_dir)
 
         break
