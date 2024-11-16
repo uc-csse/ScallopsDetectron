@@ -265,7 +265,8 @@ def process_dir(base_dir, dir_name):
 
         if len(width_linestrings_gps):
             labels = [str(w) + ' mm' for w in scallop_stats[key]['width_mm']]
-            width_lines_gdf = gp.GeoDataFrame({'NAME': labels, 'geometry': width_linestrings_gps}, geometry='geometry')
+            width_lines_gdf = gp.GeoDataFrame({'NAME': labels, 'geometry': width_linestrings_gps},
+                                              geometry='geometry', crs=SHAPE_CRS)
             width_lines_gdf.set_crs(SHAPE_CRS, inplace=True)
             width_lines_gdf.to_file(dir_full + f"shapes_ann/ALL_width_lines_{key}.geojson", driver='GeoJSON')
 
@@ -329,7 +330,8 @@ def process_dir(base_dir, dir_name):
         inbounds_diver_area = round(inbounds_diver_area * SCALE_FACTOR**2, 2)
         # print(f"Diver VALID search area for {site_id} = {inbounds_diver_area}m2")
         if len(valid_search_polys):
-            search_gdf = gp.GeoDataFrame({'NAME': 'valid_search_area', 'geometry': valid_search_polys}, geometry='geometry')
+            search_gdf = gp.GeoDataFrame({'NAME': 'valid_search_area', 'geometry': valid_search_polys},
+                                         geometry='geometry', crs=SHAPE_CRS)
             search_gdf.to_file(dir_full + 'shapes_ann/valid_search_area.geojson', driver='GeoJSON')
 
         diver_points_gps = []
@@ -356,7 +358,7 @@ def process_dir(base_dir, dir_name):
         if len(diver_points_gps):
             diver_meas_gdf = gp.GeoDataFrame({'NAME': diver_point_tags, 'geometry': diver_points_gps,
                                               'Dist along T': diver_entries_arr[:, 0],
-                                              'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry')
+                                              'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry', crs=SHAPE_CRS)
             diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
             diver_meas_gdf.to_file(dir_full + 'shapes_ann/Diver_measurements_ALL.geojson', driver='GeoJSON')
 
@@ -371,7 +373,7 @@ def process_dir(base_dir, dir_name):
         # if len(diver_points_gps):
         #     diver_meas_gdf = gp.GeoDataFrame({'NAME': diver_point_tags, 'geometry': diver_points_gps,
         #                                       'Dist along T': diver_entries_arr[:, 0],
-        #                                       'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry')
+        #                                       'Dist to T': diver_entries_arr[:, 1]}, geometry='geometry', crs=SHAPE_CRS)
         #     diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
         #     diver_meas_gdf.to_file(dir_full + 'shapes_ann/Diver_measurements_in_search_area.geojson', driver='GeoJSON')
 
@@ -446,7 +448,7 @@ def process_dir(base_dir, dir_name):
             rov_in_search_area_shapes = [s for i, s in enumerate(stats['shape']) if in_search_area[i]]
             if len(rov_in_search_area_shapes):
                 shapes_gdf = gp.GeoDataFrame({'NAME': rov_in_search_tags, 'geometry': rov_in_search_area_shapes},
-                                             geometry='geometry')
+                                             geometry='geometry', crs=SHAPE_CRS)
                 shapes_gdf.to_file(dir_full + f"shapes_ann/{key}_shapes_in_search_area.geojson", driver='GeoJSON')
             num_scallops_in_search = len(rov_in_search_area_widths)
             print(f"ROV {key} in search area scallop count = {num_scallops_in_search}")

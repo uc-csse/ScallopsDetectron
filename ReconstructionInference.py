@@ -27,7 +27,7 @@ OUTLIER_RADIUS = 0.1
 CAM_PROXIMITY_THRESH = 0.3  # m
 ELEV_MEAN_PROX_THRESH = 0.05
 
-CAM_SPACING_THRESH = 0.05
+CAM_SPACING_THRESH = 0.1
 
 IMSHOW = False
 VTK = False
@@ -145,7 +145,7 @@ def run_inference(base_dir, dirname):
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
         cam_loc = cam_quart[:3, 3]
-        dist_since_last = np.linalg.norm(cam_loc - prev_cam_loc)
+        dist_since_last = np.linalg.norm((cam_loc - prev_cam_loc)[:2])
         if dist_since_last < CAM_SPACING_THRESH / chunk_scale:
             continue
 

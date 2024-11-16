@@ -34,6 +34,8 @@ CLUSTER_TOP_N = 3
 CLUSTER_TOPN_SCORE_THRESH = 0.80 * CLUSTER_TOP_N  # threshold for sum of top N scores
 SHAPE_SCORE_MUL = 0.5
 
+SHAPE_CRS = "EPSG:4326"
+
 
 def process_dir(base_dir, dirname):
     recon_dir = base_dir + dirname + '/'
@@ -122,10 +124,10 @@ def process_dir(base_dir, dirname):
     if len(filtered_scallops_gps):
         names = [s_format(s) for s in sizes]
         geometry = [Polygon(poly) for poly in filtered_scallops_gps]
-        polygons_3d_gpd = gpd.GeoDataFrame({'NAME': names, 'geometry': geometry}, geometry='geometry')
+        polygons_3d_gpd = gpd.GeoDataFrame({'NAME': names, 'geometry': geometry}, geometry='geometry', crs=SHAPE_CRS)
         polygons_3d_gpd.to_file(shapes_3d_fn)
         geometry = [Polygon(poly[:, :2]) for poly in filtered_scallops_gps]
-        polygons_2d_gpd = gpd.GeoDataFrame({'NAME': names, 'geometry': geometry}, geometry='geometry')
+        polygons_2d_gpd = gpd.GeoDataFrame({'NAME': names, 'geometry': geometry}, geometry='geometry', crs=SHAPE_CRS)
         polygons_2d_gpd.to_file(shapes_2d_fn)
     else:
         for pth in [shapes_2d_fn, shapes_3d_fn]:
