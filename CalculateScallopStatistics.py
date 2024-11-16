@@ -62,7 +62,7 @@ def append_to_csv(filepath, df):
 
 def process_dir(dir_name):
     dir_full = PROCESSED_BASEDIR + dir_name + '/'
-    print(f"\n------------ Processing {dir_name} ------------")
+    print(f"\n------------ Calculating Statistics for {dir_name} ------------")
 
     print("Initialising DEM Reader")
     dem_obj = tiff_utils.DEM(dir_full + 'geo_tiffs/')

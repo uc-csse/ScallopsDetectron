@@ -73,9 +73,9 @@ model_paths.sort()
 print(f"Loading from {model_paths[-1].split('/')[-1]}")
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
-cfg.TEST.DETECTIONS_PER_IMAGE = 1000
+cfg.TEST.DETECTIONS_PER_IMAGE = 100
 cfg.TEST.AUG.ENABLED = False
 # cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
 # cfg.TEST.AUG.MAX_SIZE = 4000
@@ -167,8 +167,6 @@ def run_inference(recon_dir):
         masks = instances._fields['pred_masks']
         bboxes = instances._fields['pred_boxes']
         scores = instances._fields['scores']
-        if len(masks) == 0:
-            continue
 
         dimg_path = cam_telem['dpath']
         camMtx = cam_telem['cam_mtx']
@@ -192,7 +190,7 @@ def run_inference(recon_dir):
         edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_size[0]-EDGE_LIMIT_PIX, rs_size[1]-EDGE_LIMIT_PIX)
 
         if OUTPUT_FOV_SHAPES:
-            fov_rect = np.array([[0, 0], [0, rs_size[0]], [rs_size[1], 0], [rs_size[1], rs_size[0]]])
+            fov_rect = np.array([[0, 0], [rs_size[0], 0], [rs_size[0], rs_size[1]], [0, rs_size[1]]])
             fov_rect_ud = spf.undistort_pixels(fov_rect, camMtx, camDist).astype(np.int32)
             avg_z = img_depth_np[::100, ::100].mean()
             fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
@@ -200,6 +198,9 @@ def run_inference(recon_dir):
             fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
             fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
             cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
+        
+        if len(masks) == 0:
+            continue
 
         if IMSHOW:
             v = Visualizer(img_rs[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)

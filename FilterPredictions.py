@@ -37,7 +37,7 @@ SHAPE_SCORE_MUL = 0.5
 
 def process_dir(dirname):
     recon_dir = PROCESSED_BASEDIR + dirname + '/'
-    print(f"----------- Processing {dirname} -----------")
+    print(f"----------- Filtering {dirname} -----------")
     shape_file_3D = glob.glob(recon_dir + 'shapes_pred/*3D.gpkg')
 
     if len(shape_file_3D) != 1:
