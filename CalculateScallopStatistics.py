@@ -395,7 +395,8 @@ def process_dir(base_dir, dir_name):
         rov_meas_bins_dict, counts, bins = bin_widths_1_150_mm(diver_widths_valid)
         df_row_dive.update(rov_meas_bins_dict)
         df_row = dict(df_row_shared, **df_row_dive)
-        append_to_csv(PROCESSED_BASEDIR + 'scallop_dive_stats.csv', pd.DataFrame(df_row))
+        if OUTPUT_TO_CSVS:
+            append_to_csv(PROCESSED_BASEDIR + 'scallop_dive_stats.csv', pd.DataFrame(df_row))
         if SHOW_STATS_PLOTS or SAVE_STATS_PLOTS:
             plt.figure()
             plt.bar(bins, counts)
@@ -466,7 +467,8 @@ def process_dir(base_dir, dir_name):
             rov_meas_bins_dict, counts, bins = bin_widths_1_150_mm(rov_in_search_area_widths)
             df_row_rov.update(rov_meas_bins_dict)
             df_row = dict(df_row_shared, **df_row_rov)
-            append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
+            if OUTPUT_TO_CSVS:
+                append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
             if SHOW_STATS_PLOTS or SAVE_STATS_PLOTS:
                 plt.figure()
                 plt.bar(bins, counts)
@@ -485,14 +487,16 @@ def process_dir(base_dir, dir_name):
                     df_row = {'site id': [site_id] * total_detected,
                               'match id': diver_match_idxs + [-1]*len(unmatched_widths),
                               'width mm': cnn_widths_mm + unmatched_widths}
-                    append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
+                    if OUTPUT_TO_CSVS:
+                        append_to_csv(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv', pd.DataFrame(df_row))
                     if len(diver_widths_valid):
                         diver_measurement_ids = list(range(len(diver_widths_valid)))
                         diver_measurement_ids = [id if id in diver_match_idxs else -1 for id in diver_measurement_ids]
                         df_row = {'site id': [site_id] * len(diver_widths_valid),
                                   'match id': diver_measurement_ids,
                                   'width mm': diver_widths_valid}
-                        append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
+                        if OUTPUT_TO_CSVS:
+                            append_to_csv(PROCESSED_BASEDIR + 'individual_diver_measurements.csv', pd.DataFrame(df_row))
 
                 matched_error = matched_arr[0] - matched_arr[1]
                 rov_count_eff_matched = matched_arr.shape[1] / inbound_diver_count
