@@ -96,10 +96,10 @@ def process_dir(base_dir, dirname):
     scores_debug = []
     for c_idxs in tqdm(cluster_idxs):
         cluster_polygons = [polygons_local[p_idx] for p_idx in c_idxs]
-        scores = [polygon_scores[p_idx] for p_idx in c_idxs]
-        combined_score = np.sum(np.sort(scores)[-CLUSTER_TOP_N:])
+        scores = np.sort([polygon_scores[p_idx] for p_idx in c_idxs])
+        combined_score = np.sum(scores[-CLUSTER_TOP_N:])
         scores_debug.append(combined_score)
-        if combined_score > CLUSTER_TOPN_SCORE_THRESH:
+        if scores[-1] > 0.95:  # combined_score > CLUSTER_TOPN_SCORE_THRESH or 
             if len(cluster_polygons) > 1:
                 combined_polygon = spf.cluster_avg_polygon(cluster_polygons, scores)
             else:
