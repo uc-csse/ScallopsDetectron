@@ -38,4 +38,4 @@ if __name__ == '__main__':
         FilterPredictions.process_dir(PROCESSED_BASEDIR, data_dir)
         CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR, data_dir)
 
-        break
+        # break

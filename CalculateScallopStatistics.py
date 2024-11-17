@@ -24,7 +24,7 @@ SCALE_FACTOR = 1.025
 SAVE_STATS_PLOTS = False
 SHOW_STATS_PLOTS = False
 SHOW_SHAPE_PLOTS = False
-OUTPUT_TO_CSVS = False
+OUTPUT_TO_CSVS = True
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
