@@ -25,13 +25,13 @@ DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'  # 'dirs_done.txt
 SHOW_SHAPE_PLOTS = False
 
 SCALE_MUL = 1.025
-RNN_DISTANCE = 0.02
+RNN_DISTANCE = 0.03
 
 SCALLOP_W_TO_L_RATIO = 1.3
-W_TO_L_SCORE_STD = 0.4  # tolerance for width to length error
+W_TO_L_SCORE_STD = 0.5  # tolerance for width to length error
 
 CLUSTER_TOP_N = 3
-CLUSTER_TOPN_SCORE_THRESH = 0.80 * CLUSTER_TOP_N  # threshold for sum of top N scores
+CLUSTER_TOPN_SCORE_THRESH = 0.70 * CLUSTER_TOP_N  # threshold for sum of top N scores
 SHAPE_SCORE_MUL = 0.5
 
 SHAPE_CRS = "EPSG:4326"
