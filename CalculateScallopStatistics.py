@@ -24,6 +24,7 @@ SCALE_FACTOR = 1.025
 SAVE_STATS_PLOTS = False
 SHOW_STATS_PLOTS = False
 SHOW_SHAPE_PLOTS = False
+OUTPUT_TO_CSVS = False
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
@@ -285,7 +286,8 @@ def process_dir(base_dir, dir_name):
             rov_meas_bins_dict, counts, bins = bin_widths_1_150_mm(scallop_stats[key]['width_mm'])
             df_row_rov.update(rov_meas_bins_dict)
             df_row = dict(df_row_shared, **df_row_rov)
-            append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
+            if OUTPUT_TO_CSVS:
+                append_to_csv(PROCESSED_BASEDIR + f"scallop_rov_{key}_stats.csv", pd.DataFrame(df_row))
             if SHOW_STATS_PLOTS or SAVE_STATS_PLOTS:
                 plt.figure()
                 plt.bar(bins, counts)
