@@ -138,7 +138,7 @@ def process_dir(base_dir, dirname):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    data_dirs = data_dirs[38:]
+    # data_dirs = data_dirs[38:]
     for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break
