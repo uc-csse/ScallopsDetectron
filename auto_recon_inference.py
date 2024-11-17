@@ -11,7 +11,7 @@ EDIT_TXTS = False
 
 
 if __name__ == '__main__':
-    idx = 4
+    idx = 5
     while True:
         # Pop first directory from to-do file
         with open(TODO_DIRS_FILE, 'r') as todo_file:

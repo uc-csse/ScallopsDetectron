@@ -16,8 +16,6 @@ from shapely.geometry import Polygon, Point
 import geopandas as gpd
 import pickle
 
-NUM_INFERENCE_THREADS = 4
-
 IMG_RS_MOD = 2
 
 MASK_PNTS_SUB = 200
@@ -153,7 +151,7 @@ def run_inference(base_dir, dirname):
         # print(chunk_scale)
         # print("COV mean: ", chunk_scale**2 * xyz_cov_mean)
         # print(cam_pos_score)
-        prev_cam_loc = cam_loc
+        prev_cam_loc = cam_loc.copy()
 
         img_shape = cam_telem['shape']
         cimg_path = cam_telem['cpath']
