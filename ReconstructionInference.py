@@ -193,12 +193,13 @@ def run_inference(base_dir, dirname):
             fov_rect = np.array([[0, 0], [rs_size[0], 0], [rs_size[0], rs_size[1]], [0, rs_size[1]]])
             fov_rect_ud = spf.undistort_pixels(fov_rect, camMtx, camDist).astype(np.int32)
             depth_img_sample = img_depth_np[::100, ::100]
-            avg_z = depth_img_sample[np.where(depth_img_sample > 0)].mean()
-            fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
-            fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
-            fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
-            fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
-            cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
+            if np.sum(depth_img_sample > 0):
+                avg_z = depth_img_sample[np.where(depth_img_sample > 0)].mean()
+                fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
+                fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
+                fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
+                fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
+                cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
 
         if len(masks) == 0:
             continue
