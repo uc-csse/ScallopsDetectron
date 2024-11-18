@@ -24,7 +24,7 @@ DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'  # 'dirs_done.txt
 
 SHOW_SHAPE_PLOTS = False
 
-SCALE_MUL = 1.025
+SCALE_MUL = 1.0  # 1.025
 RNN_DISTANCE = 0.03
 
 SCALLOP_W_TO_L_RATIO = 1.3

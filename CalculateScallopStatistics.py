@@ -259,7 +259,7 @@ def process_dir(base_dir, dir_name):
                     ax.auto_scale_xyz(BOX_MINMAX, BOX_MINMAX, BOX_MINMAX)
                     plt.show()
 
-            scallop_stats[key]['width_mm'].append(round(SCALE_FACTOR * max_width * 1000))
+            scallop_stats[key]['width_mm'].append(round(max_width * 1000))
             scallop_stats[key]['lat'].append(lat)
             scallop_stats[key]['lon'].append(lon)
             scallop_stats[key]['shape'].append(v_shp)
