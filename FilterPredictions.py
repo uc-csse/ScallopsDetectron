@@ -2,7 +2,7 @@
 # print("Metashape version {}".format(Metashape.version))
 import os.path
 
-from utils import VTKPointCloud as PC, polygon_functions as spf
+from utils import polygon_functions as spf
 from utils import geo_utils
 from matplotlib import pyplot as plt
 import numpy as np
@@ -73,7 +73,7 @@ def process_dir(base_dir, dirname):
         # print(f"Eigen shape score: {eig_shape_score}")
         # print(f"CNN score: {conf}")
 
-        combined_score = eig_shape_score * conf
+        combined_score = conf  # eig_shape_score *
         # print(f"Combined score: {combined_score}")
 
         polygons_local.append(poly_local_filtered)
@@ -104,7 +104,7 @@ def process_dir(base_dir, dirname):
             combined_polygon = spf.cluster_avg_polygon(cluster_polygons, scores)
         else:
             combined_polygon = cluster_polygons[0]
-        if scores[-1] > 0.90:  # combined_score > CLUSTER_TOPN_SCORE_THRESH:  #
+        if scores[-1] > 0.95:  # combined_score > CLUSTER_TOPN_SCORE_THRESH:  #
             filtered_scallop_polys.append(combined_polygon)
         else:
             rejected_scallop_polys.append(combined_polygon)
