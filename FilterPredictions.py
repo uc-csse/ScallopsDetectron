@@ -2,7 +2,7 @@
 # print("Metashape version {}".format(Metashape.version))
 import os.path
 
-from utils import VTKPointCloud as PC, polygon_functions as spf
+from utils import polygon_functions as spf
 from utils import geo_utils
 from matplotlib import pyplot as plt
 import numpy as np

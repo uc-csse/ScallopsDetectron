@@ -548,7 +548,11 @@ if __name__ == "__main__":
         with open(DONE_DIRS_FILE, 'r') as f:
             dirs_list = f.readlines()
     # dirs_list = dirs_list[132:]
+<<<<<<< HEAD
     # dirs_list = ['240713-104835\n']
+=======
+    # dirs_list = ['240615-144558\n']
+>>>>>>> 6546e4bf3f166bd0c20cc863cdc9389f6cc515f6
 
     if os.path.isfile(PROCESSED_BASEDIR + 'individual_diver_measurements.csv'):
         os.remove(PROCESSED_BASEDIR + 'individual_diver_measurements.csv')
