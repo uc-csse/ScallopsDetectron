@@ -19,13 +19,14 @@ import geopandas as gpd
 
 
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
-DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'  # 'dirs_done.txt'
+DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
 
 SHOW_SHAPE_PLOTS = False
 
 SCALE_MUL = 1.0  # 1.025
 RNN_DISTANCE = 0.03
+CLUSTER_SCORE_THRESH = 0.99
 
 SCALLOP_W_TO_L_RATIO = 1.3
 W_TO_L_SCORE_STD = 0.5  # tolerance for width to length error
@@ -63,21 +64,19 @@ def process_dir(base_dir, dirname):
         # Filter out-of-plane points
         poly_local_filtered = spf.plane_ransac_filter(poly_local, flatten=True)
 
-        # TODO: score by symmetry - Phuong's code
+        # # Filter on polygon contour shape, CNN confidence, symmetry in width dimension, convexity, curve, pca statistics
+        # eig_vecs, eig_vals, center_pnt = spf.pca(poly_local_filtered)
+        # w_to_l = np.sqrt(eig_vals[0] / eig_vals[1])
+        # eig_shape_score = 1.0 - SHAPE_SCORE_MUL * min(W_TO_L_SCORE_STD, abs(w_to_l - SCALLOP_W_TO_L_RATIO)) / W_TO_L_SCORE_STD
+        # # print("W to L eigen ratio", w_to_l)
+        # # print(f"Eigen shape score: {eig_shape_score}")
+        # # print(f"CNN score: {conf}")
 
-        # Filter on polygon contour shape, CNN confidence, symmetry in width dimension, convexity, curve, pca statistics
-        eig_vecs, eig_vals, center_pnt = spf.pca(poly_local_filtered)
-        w_to_l = np.sqrt(eig_vals[0] / eig_vals[1])
-        eig_shape_score = 1.0 - SHAPE_SCORE_MUL * min(W_TO_L_SCORE_STD, abs(w_to_l - SCALLOP_W_TO_L_RATIO)) / W_TO_L_SCORE_STD
-        # print("W to L eigen ratio", w_to_l)
-        # print(f"Eigen shape score: {eig_shape_score}")
-        # print(f"CNN score: {conf}")
-
-        combined_score = eig_shape_score * conf
+        # combined_score = conf  # eig_shape_score *
         # print(f"Combined score: {combined_score}")
 
         polygons_local.append(poly_local_filtered)
-        polygon_scores.append(combined_score)
+        polygon_scores.append(conf)
 
         if SHOW_SHAPE_PLOTS:
             ax = plt.axes(projection='3d')
@@ -97,17 +96,20 @@ def process_dir(base_dir, dirname):
     scores_debug = []
     for c_idxs in tqdm(cluster_idxs):
         cluster_polygons = [polygons_local[p_idx] for p_idx in c_idxs]
-        scores = np.sort([polygon_scores[p_idx] for p_idx in c_idxs])
-        combined_score = np.sum(scores[-CLUSTER_TOP_N:])
-        scores_debug.append(combined_score)
+        scores = [polygon_scores[p_idx] for p_idx in c_idxs]
+        scores_sorted = np.sort(scores)
+        avg_score = np.mean(scores_sorted)
+        # combined_score = np.sum(scores[-CLUSTER_TOP_N:])
+        scores_debug.append(avg_score)
         if len(cluster_polygons) > 1:
             combined_polygon = spf.cluster_avg_polygon(cluster_polygons, scores)
         else:
             combined_polygon = cluster_polygons[0]
-        if scores[-1] > 0.90:  # combined_score > CLUSTER_TOPN_SCORE_THRESH:  #
+        if avg_score > CLUSTER_SCORE_THRESH:
             filtered_scallop_polys.append(combined_polygon)
         else:
             rejected_scallop_polys.append(combined_polygon)
+
     # counts, bins = np.histogram(scores_debug, bins=np.arange(start=0.0, stop=5.0, step=0.1))
     # plt.bar(bins[:-1], counts)
     # plt.title(f"Combined score distribution")
@@ -147,7 +149,7 @@ def process_dir(base_dir, dirname):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    # data_dirs = data_dirs[38:]
+    # data_dirs = ['240615-144558\n']  # data_dirs[9:]
     for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break

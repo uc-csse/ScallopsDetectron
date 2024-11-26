@@ -4,18 +4,20 @@ import CalculateScallopStatistics
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 
-TODO_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'  # 'dirs_inference_todo.txt'
-DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_inference_done.txt'
+TODO_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_processing_todo.txt'
+DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_processing_done.txt'
 
-EDIT_TXTS = False
+EDIT_TXTS = True
 
 
 if __name__ == '__main__':
-    idx = 5
+    idx = 0
     while True:
         # Pop first directory from to-do file
         with open(TODO_DIRS_FILE, 'r') as todo_file:
             data_dirs = todo_file.readlines()
+        if idx >= len(data_dirs):
+            break
         dir_line = data_dirs.pop(idx)
         if 'STOP' in dir_line:
             break
@@ -34,8 +36,11 @@ if __name__ == '__main__':
             continue
         data_dir = dir_line[:13]
 
-        ReconstructionInference.run_inference(PROCESSED_BASEDIR, data_dir)
-        FilterPredictions.process_dir(PROCESSED_BASEDIR, data_dir)
-        CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR, data_dir)
+        # ReconstructionInference.run_inference(PROCESSED_BASEDIR, data_dir)
+        try:
+            FilterPredictions.process_dir(PROCESSED_BASEDIR, data_dir)
+            CalculateScallopStatistics.process_dir(PROCESSED_BASEDIR, data_dir)
+        except Exception as e:
+            print(e)
 
         # break

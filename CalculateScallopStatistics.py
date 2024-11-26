@@ -1,7 +1,6 @@
 import glob
 import geopandas as gp
 import pandas as pd
-import shapely
 from shapely.geometry import *
 import numpy as np
 from utils import geo_utils, vpz_utils, file_utils, tiff_utils
@@ -37,7 +36,7 @@ PAIRED_SITE_ID_STRS = ['EX', 'MC', 'OP', 'UQ']
 
 PARA_DIST_THRESH = 0.15
 PERP_DIST_THRESH = 0.05
-GPS_DIST_THRESHOLD_M = 0.03
+GPS_DIST_THRESHOLD_M = 0.06
 
 YELLOWC = '\033[93m'
 REDC = '\033[91m'
@@ -111,6 +110,7 @@ def process_dir(base_dir, dir_name):
                 if isinstance(row.geometry, LineString):
                     scallop_shapes["NIWA_annotated"].append(row.geometry)
         if "diver_measurements_all" in label.lower():
+            print(f"{GREENC}VPZ Diver measurements found{ENDC}")
             vpz_diver_measurements_gps = []
             for i, row in shape_layer.iterrows():
                 assert isinstance(row.geometry, Point)
@@ -259,7 +259,7 @@ def process_dir(base_dir, dir_name):
                     ax.auto_scale_xyz(BOX_MINMAX, BOX_MINMAX, BOX_MINMAX)
                     plt.show()
 
-            scallop_stats[key]['width_mm'].append(round(max_width * 1000))
+            scallop_stats[key]['width_mm'].append(round(max_width * 1000, 2))
             scallop_stats[key]['lat'].append(lat)
             scallop_stats[key]['lon'].append(lon)
             scallop_stats[key]['shape'].append(v_shp)
@@ -381,7 +381,7 @@ def process_dir(base_dir, dir_name):
 
         if vpz_diver_measurements_gps is not None:
             total_diver_count = len(vpz_diver_measurements_gps)
-            vpz_diver_measurements_gps = [[pnt, tag] for pnt, tag in vpz_diver_measurements_gps if check_inbounds(Point(pnt), include_polys, exclude_polys)]
+            vpz_diver_measurements_gps = [[pnt, tag] for pnt, tag in vpz_diver_measurements_gps if check_inbounds(Point(pnt), valid_search_polys, exclude_polys)]
             inbound_diver_count = len(vpz_diver_measurements_gps)
             diver_widths_valid = [int(tag.split(' ')[1]) for pnt, tag in vpz_diver_measurements_gps]
         # print(f"Diver TOTAL scallop count = {total_diver_count}")
@@ -409,10 +409,10 @@ def process_dir(base_dir, dir_name):
         for key, stats in scallop_stats.items():
             in_search_area = []
             unmatched_widths = []
-            false_positive_num = 0
+            false_positive_shapes = []
             # if key != 'detected':
             #     continue
-            for lon, lat, width_rov in zip(stats['lon'], stats['lat'], stats['width_mm']):
+            for lon, lat, width_rov, shape in zip(stats['lon'], stats['lat'], stats['width_mm'], stats['shape']):
                 is_inbounds = check_inbounds(Point(lon, lat), valid_search_polys, exclude_polys)
                 in_search_area.append(is_inbounds)
                 if vpz_diver_measurements_gps is None:
@@ -425,18 +425,17 @@ def process_dir(base_dir, dir_name):
                     scallop_near = near_para * near_perp
                 else:
                     gps_dist = np.array([geo_utils.measure_chordlen([lon, lat], diver_pnt) for diver_pnt, tag in vpz_diver_measurements_gps]) * SCALE_FACTOR
-                    scallop_near = gps_dist < GPS_DIST_THRESHOLD_M
+                    scallop_near = (gps_dist < GPS_DIST_THRESHOLD_M) * (gps_dist == np.min(gps_dist))
 
                 num_matches = np.sum(scallop_near)
+                if num_matches == 0 and is_inbounds:
+                    false_positive_shapes.append(shape)
+                    unmatched_widths.append(width_rov)
+
                 if num_matches == 0:
-                    false_positive_num += int(is_inbounds)
-                    if is_inbounds:
-                        unmatched_widths.append(width_rov)
                     continue
                 if num_matches > 1:
-                    false_positive_num += int(is_inbounds)
-                    print("Multiple matches!")
-                    # TODO: deal with multiple (detected / annotated) <-> diver matches
+                    print("Error!")
                     continue
 
                 if vpz_diver_measurements_gps is None:
@@ -445,6 +444,18 @@ def process_dir(base_dir, dir_name):
                     diver_width_mm = diver_widths_valid[np.where(scallop_near)[0][0]]
                 diver_meas_idx = np.where(scallop_near)[0][0]
                 matched_scallop_widths[key].append([width_rov, diver_width_mm, diver_meas_idx])
+
+            if len(false_positive_shapes) and key == 'detected':
+                new_geo = []
+                for polygon in false_positive_shapes:
+                    if polygon.has_z:
+                        assert polygon.geom_type == 'Polygon'
+                        lines = [xy[:2] for xy in list(polygon.exterior.coords)]
+                        new_geo.append(Polygon(lines))
+                shapes_gdf = gp.GeoDataFrame({'NAME': 'False positives', 'geometry': new_geo},
+                                             geometry='geometry', crs=SHAPE_CRS)
+                shapes_gdf.to_file(dir_full + f"shapes_pred/{key}_false_positives_in_search_area.geojson", driver='GeoJSON')
+
 
             rov_in_search_area_widths = [w for i, w in enumerate(stats['width_mm']) if in_search_area[i]]
             rov_in_search_tags = [f"{key}_{str(w)}mm" for w in rov_in_search_area_widths]
@@ -501,7 +512,7 @@ def process_dir(base_dir, dir_name):
                 matched_error = matched_arr[0] - matched_arr[1]
                 rov_count_eff_matched = matched_arr.shape[1] / inbound_diver_count
                 print(f"ROV {key} matched count efficacy = {round(rov_count_eff_matched * 100)}%")
-                print(f"ROV {key} in search area false positive = {false_positive_num}")
+                print(f"ROV {key} in search area false positive = {len(false_positive_shapes)}")
                 print(f"ROV {key} in search area false negative = {inbound_diver_count - matched_arr.shape[1]}")
                 print(f"ROV {key} matched sizing error STD = {round(np.std(matched_error), 2)}mm")
                 mean_error = np.mean(matched_error)
@@ -537,7 +548,7 @@ if __name__ == "__main__":
         with open(DONE_DIRS_FILE, 'r') as f:
             dirs_list = f.readlines()
     # dirs_list = dirs_list[132:]
-    # dirs_list = ['240713-134608\n']
+    # dirs_list = ['240713-104835\n']
 
     if os.path.isfile(PROCESSED_BASEDIR + 'individual_diver_measurements.csv'):
         os.remove(PROCESSED_BASEDIR + 'individual_diver_measurements.csv')

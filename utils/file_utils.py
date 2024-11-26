@@ -8,10 +8,13 @@ def del_if_exists(path):
     if os.path.exists(path):
         os.remove(path)
 
-def SetFolderPermissions(folder):
+def SetFolderPermissions(folder, read_only=False):
     # TKRFILES=$(ls -l | grep tkr25 | grep 2304 | tr -s ' ' | cut -f9 -d ' ')
     # chmod -R g+rwX,o+rX $TKRFILES
-    os.system("chmod -R g+rwX " + folder)
+    cmd = "chmod -R g+r-wX " if read_only else "chmod -R g+rwX"
+    os.system(cmd + ' ' + folder)
+
+
 
 def clear_dir(dir_path):
     files = os.listdir(dir_path)

@@ -13,7 +13,7 @@ import glob
 import math
 from shapely.geometry import *
 
-DISPLAY = False
+DISPLAY = True
 WAITKEY = 0
 
 CAM_COV_THRESHOLD = 0.01
@@ -234,7 +234,8 @@ def create_dataset(dirname):
         img_ds_fpath = data_dir + dataset_name + '/' + img_fn
         cimg = cv2.imread(img_path)
         cimg_rs = cv2.resize(cimg, CNN_INPUT_SHAPE[::-1])
-        cv2.imwrite(img_ds_fpath, cimg_rs)
+        if not DISPLAY:
+            cv2.imwrite(img_ds_fpath, cimg_rs)
 
         record = {}
         record["file_name"] = img_fn
@@ -245,12 +246,12 @@ def create_dataset(dirname):
         record["annotations"] = objs
         label_dict.append(record)
 
-        if DISPLAY:  # and len(display_polygon_l):
+        if DISPLAY and len(display_polygon_l) > 0:
             drawing = cimg_rs
             for polygon in display_polygon_l:
-                cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=1)
+                cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)
             for box_pt1, box_pt2 in display_bxs:
-                cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 1)
+                cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 2)
             cv2.imshow("Annotated img", drawing)
             key = cv2.waitKey(WAITKEY)
             if key == ord('b'):
@@ -270,7 +271,7 @@ if __name__ == '__main__':
     datasets_created = []
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs[24:]:
+    for dir_line in data_dirs[38:]:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

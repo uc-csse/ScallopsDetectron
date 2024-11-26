@@ -27,7 +27,7 @@ ELEV_MEAN_PROX_THRESH = 0.05
 
 CAM_SPACING_THRESH = 0.1
 
-IMSHOW = False
+IMSHOW = True
 VTK = False
 WAITKEY = 0
 YAPPI_PROFILE = False
@@ -136,6 +136,8 @@ def run_inference(base_dir, dirname):
     prev_cam_loc = np.array((3,), dtype=np.float64)
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cnt += 1
+        if cnt < 100:
+            continue
         sensor_key = cam_label.split('-')[0]
         if sensor_key not in sensor_keys:
             sensor_keys.append(sensor_key)
@@ -219,7 +221,7 @@ def run_inference(base_dir, dirname):
                 scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
                 # Clip number of vertices in polygon to 50->100
                 # scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 100)]
-                if IMSHOW:
+                if False and IMSHOW:
                     cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
                     cv2.drawContours(depth_display, contours, contourIdx=-1, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
@@ -261,7 +263,7 @@ def run_inference(base_dir, dirname):
                 prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
                 prediction_labels.append(str(round(score.item(), 2)))
 
-                if IMSHOW and scallop_pnts_cam.shape[1] > 1:
+                if False and IMSHOW and scallop_pnts_cam.shape[1] > 1:
                     pc_vecs, pc_lengths, center_pnt = spf.pca(scallop_pnts_cam.T)
                     MUL = 1.9
                     pc_lengths = np.sqrt(pc_lengths) * MUL
@@ -281,7 +283,7 @@ def run_inference(base_dir, dirname):
                     iren.Render()
                     iren.Start()
 
-        if IMSHOW:
+        if IMSHOW and len(cam_fov_polys) > 0:
             # print("Image inference time: {}s".format(time.time()-start_time))
             cv2.rectangle(out_image, edge_box[:2], edge_box[2:], (0, 0, 255), thickness=1)
             cv2.imshow("Input image", img_rs)
@@ -299,7 +301,7 @@ def run_inference(base_dir, dirname):
         yappi.get_thread_stats().print_all()
         exit(0)
 
-    file_utils.ensure_dir_exists(recon_dir + 'shapes_pred', clear=True)
+    file_utils.ensure_dir_exists(recon_dir + 'shapes_pred', clear=not IMSHOW)
     shapes_fn = recon_dir + 'shapes_pred/Pred_' + datetime.now().strftime("%d%m%y_%H%M")
     shapes_fn_3d = shapes_fn + '_3D.gpkg'
     gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels},
@@ -330,7 +332,7 @@ def run_inference(base_dir, dirname):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    data_dirs = data_dirs[58:]
+    data_dirs = ['240607-093240\n']  # data_dirs[113:]
     for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break
