@@ -18,10 +18,7 @@ import pickle
 
 IMG_RS_MOD = 2
 
-MASK_PNTS_SUB = 200
-
-EDGE_LIMIT_PIX = 5
-OUTLIER_RADIUS = 0.1
+EDGE_LIM = 5
 
 CAM_SPACING_THRESH = 0.1
 
@@ -47,7 +44,7 @@ cfg.set_new_allowed(True)
 cfg.merge_from_file(MODEL_PATH + 'config.yml')
 model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
-print(f"Loading from {model_paths[-1].split('/')[-1]}")
+print(f"Loading Mask-RCNN from {model_paths[-1]}")
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2
@@ -55,7 +52,6 @@ cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 100
 cfg.TEST.AUG.ENABLED = False
 predictor = DefaultPredictor(cfg)
-
 
 if IMSHOW:
     cv2.namedWindow("Depth", cv2.WINDOW_NORMAL)
@@ -116,17 +112,10 @@ def run_inference(base_dir, dirname):
         rs_size = (img_shape[1] // IMG_RS_MOD, img_shape[0] // IMG_RS_MOD)
         img_rs = cv2.resize(img, rs_size)
 
-        outputs = predictor(img_rs)
-        instances = outputs["instances"].to("cpu")
-        masks = instances._fields['pred_masks']
-        bboxes = instances._fields['pred_boxes']
-        scores = instances._fields['scores']
-
         dimg_path = cam_telem['dpath']
         camMtx = cam_telem['cam_mtx']
         camMtx[:2, :] /= IMG_RS_MOD
         camDist = cam_telem['cam_dist']
-        cam_fov = cam_telem['cam_fov']
 
         depth_img_path = recon_dir + dimg_path
         if '.npy' in dimg_path:
@@ -139,7 +128,11 @@ def run_inference(base_dir, dirname):
             img_depth_np = scale * img_depth_u16.astype(np.float32)
         img_depth_np = cv2.resize(img_depth_np, rs_size)
 
-        edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_size[0]-EDGE_LIMIT_PIX, rs_size[1]-EDGE_LIMIT_PIX)
+        outputs = predictor(img_rs)
+        instances = outputs["instances"].to("cpu")
+        masks = instances._fields['pred_masks']
+        bboxes = instances._fields['pred_boxes']
+        scores = instances._fields['scores']
 
         if OUTPUT_FOV_SHAPES:
             fov_rect = np.array([[0, 0], [rs_size[0], 0], [rs_size[0], rs_size[1]], [0, rs_size[1]]])
@@ -164,10 +157,9 @@ def run_inference(base_dir, dirname):
             mask_np = mask.numpy()[:, :, None].astype(np.uint8)
             contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
             scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
-            max_pix_inds = np.max(scallop_polygon, axis=0)
-            min_pix_inds = np.min(scallop_polygon, axis=0)
-            if (any(min_pix_inds < EDGE_LIMIT_PIX) or
-                    max_pix_inds[1] >= rs_size[1] - EDGE_LIMIT_PIX or max_pix_inds[0] >= rs_size[0] - EDGE_LIMIT_PIX):
+            max_pix = np.max(scallop_polygon, axis=0)
+            min_pix = np.min(scallop_polygon, axis=0)
+            if any(min_pix < EDGE_LIM) or max_pix[1] >= rs_size[1] - EDGE_LIM or max_pix[0] >= rs_size[0] - EDGE_LIM:
                 continue
             scallop_polygon_geodetic = reprojection.reproject_polygon(scallop_polygon, camMtx, camDist, cam_quart,
                                                                       img_depth_np, chunk_scale, chunk_transform)
@@ -175,14 +167,13 @@ def run_inference(base_dir, dirname):
                 continue
             if IMSHOW:
                 cv2.circle(out_image, scallop_polygon.mean(axis=0).astype(int), 10, (0, 255, 0), -1)
-            scallop_polygon_shapely = Polygon(scallop_polygon_geodetic).simplify(tolerance=0.001 / 111e3, preserve_topology=True)
+            scallop_polygon_shapely = Polygon(scallop_polygon_geodetic).simplify(tolerance=0.003 / 111e3, preserve_topology=True)
             prediction_geometries.append(scallop_polygon_shapely)
             prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
             prediction_labels.append(str(round(score.item(), 2)))
 
         if IMSHOW and len(cam_fov_polys) > 0:
             # print("Image inference time: {}s".format(time.time()-start_time))
-            cv2.rectangle(out_image, edge_box[:2], edge_box[2:], (0, 0, 255), thickness=1)
             cv2.imshow("Input image", img_rs)
             cv2.imshow("Labelled sub image", out_image)
             cv2.imshow("Depth", depth_display)

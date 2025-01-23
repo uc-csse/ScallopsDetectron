@@ -9,7 +9,7 @@ from tqdm import tqdm
 from shapely.geometry import *
 
 DISPLAY_HISTS = True
-DISPLAY_POLYS = False
+DISPLAY_POLYS = True
 if DISPLAY_POLYS:
     cv2.namedWindow("Annotated Dataset Img", cv2.WINDOW_GUI_NORMAL)
     cv2.namedWindow("Annotated Dataset DImg", cv2.WINDOW_GUI_NORMAL)
@@ -152,7 +152,7 @@ def pixel_gps_IoU(dirname):
             reproj_scallop_ious.append(scallop_iou)
 
             if DISPLAY_POLYS and scallop_iou < 0.8 and len(scallop_ann):
-                print("\nDistance:", distance, "IoU:", scallop_iou)
+                print("\nDistance:", round(distance, 4), "IoU:", round(scallop_iou, 2))
                 plt.cla()
                 plt.plot(scallop_img_local[:, 0], scallop_img_local[:, 1])
                 plt.plot(scallop_ortho_local[:, 0], scallop_ortho_local[:, 1])

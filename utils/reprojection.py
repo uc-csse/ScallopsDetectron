@@ -29,7 +29,8 @@ def reproject_polygon(pixels, cam_mtx, cam_dist, cam_q44, depth_map, chunk_scale
     scallop_polygon_ud = spf.undistort_pixels(pixels, cam_mtx, cam_dist).astype(np.int32)
     vert_elevations = depth_map[scallop_polygon_ud[:, 1], scallop_polygon_ud[:, 0]]
     # Threshold out points close to camera
-    # TODO: estimate depth values where the depth image is invalid??
+    # TODO: check depth img coverage around pixel coordinates
+    # TODO: estimate depth values where the depth image is invalid - ransac method or take neighbouring points??
     valid_indices = np.where(vert_elevations > (CAM_PROXIMITY_THRESH / chunk_scale))
     if len(valid_indices[0]) < 10:
         return None
