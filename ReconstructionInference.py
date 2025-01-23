@@ -8,7 +8,7 @@ from detectron2.data import MetadataCatalog
 import pathlib, os
 from detectron2.config import get_cfg
 from utils import VTKPointCloud as PC, polygon_functions as spf
-from utils import geo_utils, file_utils
+from utils import geo_utils, file_utils, reprojection
 import vtk
 import time
 from datetime import datetime
@@ -20,15 +20,12 @@ IMG_RS_MOD = 2
 
 MASK_PNTS_SUB = 200
 
-EDGE_LIMIT_PIX = 150 // IMG_RS_MOD
+EDGE_LIMIT_PIX = 5
 OUTLIER_RADIUS = 0.1
-CAM_PROXIMITY_THRESH = 0.3  # m
-ELEV_MEAN_PROX_THRESH = 0.05
 
 CAM_SPACING_THRESH = 0.1
 
 IMSHOW = True
-VTK = False
 WAITKEY = 0
 YAPPI_PROFILE = False
 
@@ -40,26 +37,8 @@ if YAPPI_PROFILE:
     import yappi
     yappi.start()
 
-
-def CamToChunk(pnts_cam, cam_quart):
-    return np.matmul(cam_quart, np.vstack([pnts_cam, np.ones((1, pnts_cam.shape[1]))]))[:3, :]
-
-def CamPixToRay(pixels_cam, cam_mtx):
-    return np.matmul(np.linalg.inv(cam_mtx), np.vstack([pixels_cam, np.ones((1, pixels_cam.shape[1]))]))
-
-def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
-    points = np.concatenate([np.multiply(axis_vecs, np.repeat(axis_scales[:, None], 3, axis=1)) +
-                             np.repeat(origin[None, :], 3, axis=0), origin[None, :]], axis=0)
-    axis_points, _ = cv2.projectPoints(points, np.zeros((1, 3)), np.zeros((1, 3)), cam_mtx, None)
-    axis_points = axis_points.astype(int)
-    cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[2].ravel()), (255, 0, 0), 3)
-    cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[1].ravel()), (0, 255, 0), 3)
-    cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[0].ravel()), (0, 0, 255), 3)
-
-
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
-
 MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/fifth/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
@@ -75,11 +54,6 @@ cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 100
 cfg.TEST.AUG.ENABLED = False
-# cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
-# cfg.TEST.AUG.MAX_SIZE = 4000
-# cfg.TEST.AUG.FLIP = False
-# cfg.TEST.PRECISE_BN.ENABLED = False
-# cfg.TEST.PRECISE_BN.NUM_ITER = 200
 predictor = DefaultPredictor(cfg)
 
 
@@ -87,29 +61,10 @@ if IMSHOW:
     cv2.namedWindow("Depth", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Input image", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Labelled sub image", cv2.WINDOW_NORMAL)
-if VTK:
-    pnt_cld = PC.VtkPointCloud(pnt_size=1)
-    ren = vtk.vtkRenderer()
-    renWin = vtk.vtkRenderWindow()
-    renWin.AddRenderer(ren)
-    renWin.SetSize(1000, 1000)
-    iren = vtk.vtkRenderWindowInteractor()
-    iren.SetRenderWindow(renWin)
-    vtk_axes = vtk.vtkAxesActor()
-    axes_transform_np = np.eye(4)
-    axes_matrix = vtk.vtkMatrix4x4()
-    vtk_axes.SetUserMatrix(axes_matrix)
-    ren.AddActor(vtk_axes)
-    ren.AddActor(pnt_cld.vtkActor)
-    iren.Initialize()
 
 def log(str):
     with open(PROCESSED_BASEDIR + 'inference_log.txt', 'a') as lf:
         lf.write(str + '\n')
-
-
-def TransformPoints(pnts, transform_quart):
-    return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
 
 
 def run_inference(base_dir, dirname):
@@ -129,7 +84,6 @@ def run_inference(base_dir, dirname):
     prediction_geometries = []
     prediction_markers = []
     prediction_labels = []
-    gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
     cnt = 0
     sensor_keys = []
     cam_fov_polys = []
@@ -183,9 +137,7 @@ def run_inference(base_dir, dirname):
                 continue
             scale = float(depth_img_path.split('/')[-1].split('_')[-1][:-4])
             img_depth_np = scale * img_depth_u16.astype(np.float32)
-
         img_depth_np = cv2.resize(img_depth_np, rs_size)
-        # img_depth_np = cv2.blur(img_depth_np, ksize=(11, 11))
 
         edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_size[0]-EDGE_LIMIT_PIX, rs_size[1]-EDGE_LIMIT_PIX)
 
@@ -195,10 +147,7 @@ def run_inference(base_dir, dirname):
             depth_img_sample = img_depth_np[::100, ::100]
             if np.sum(depth_img_sample > 0):
                 avg_z = depth_img_sample[np.where(depth_img_sample > 0)].mean()
-                fov_rect_cam = CamPixToRay(fov_rect_ud.T, camMtx) * avg_z
-                fov_rect_chunk = CamToChunk(fov_rect_cam, cam_quart)
-                fov_rect_geocentric = TransformPoints(fov_rect_chunk, chunk_transform)
-                fov_rect_geodetic = np.apply_along_axis(gcs2ccs, 1, fov_rect_geocentric.T)
+                fov_rect_geodetic = reprojection.PixToGeodedic(fov_rect_ud, np.array([avg_z]), camMtx, cam_quart, chunk_transform)
                 cam_fov_polys.append(Polygon(fov_rect_geodetic[:, :2]))
 
         if len(masks) == 0:
@@ -212,76 +161,24 @@ def run_inference(base_dir, dirname):
             depth_display = np.repeat(depth_display[:, :, None], 3, axis=2)
 
         for mask, box, score in list(zip(masks, bboxes, scores)):
-            mask_pnts = np.array(np.where(mask))[::-1].transpose()
-            scallop_centre, radius = cv2.minEnclosingCircle(mask_pnts)
-            scallop_centre = np.array(scallop_centre, dtype=int)
-            if edge_box[0] <= scallop_centre[0] <= edge_box[2] and edge_box[1] <= scallop_centre[1] <= edge_box[3]:
-                mask_np = mask.numpy()[:, :, None].astype(np.uint8)
-                contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-                scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
-                # Clip number of vertices in polygon to 50->100
-                # scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 100)]
-                if False and IMSHOW:
-                    cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
-                    cv2.drawContours(depth_display, contours, contourIdx=-1, color=(0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
-
-                # TODO: check all undistortion code and images distortion
-
-                # Undistort polygon vertices
-                scallop_polygon_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist).astype(np.int32)
-                vert_elevations = img_depth_np[scallop_polygon_ud[:, 1], scallop_polygon_ud[:, 0]]
-                # Threshold out points close to camera
-                valid_indices = np.where(vert_elevations > (CAM_PROXIMITY_THRESH / chunk_scale))
-                if len(valid_indices[0]) < 10:
-                    continue
-                vert_elevation_mean = np.mean(vert_elevations[valid_indices])
-                valid_indices = np.where(np.abs(vert_elevations - vert_elevation_mean) < (ELEV_MEAN_PROX_THRESH / chunk_scale))
-                if len(valid_indices[0]) < 10:
-                    continue
-                vert_elevations = vert_elevations[valid_indices]
-                scallop_polygon_ud = scallop_polygon_ud[valid_indices]
-                scallop_poly_cam = CamPixToRay(scallop_polygon_ud.T, camMtx) * vert_elevations.T
-
-                num_mask_pixs = len(mask_pnts)
-                if num_mask_pixs < MASK_PNTS_SUB:
-                    continue
-                mask_pnts_mod = max(1, num_mask_pixs // MASK_PNTS_SUB)
-                mask_pnts_sub = mask_pnts[::mask_pnts_mod]
-
-                vert_elevations = img_depth_np[mask_pnts_sub[:, 1], mask_pnts_sub[:, 0]]
-                mask_pnts_ud = spf.undistort_pixels(mask_pnts_sub, camMtx, camDist)
-                scallop_pnts_cam = CamPixToRay(mask_pnts_ud.T, camMtx) * vert_elevations.T
-                scallop_pnts_cam = spf.remove_outliers(scallop_pnts_cam, OUTLIER_RADIUS / chunk_scale)
-                if scallop_pnts_cam.shape[1] < 10:
-                    continue
-
-                scallop_polygon_chunk = CamToChunk(scallop_poly_cam, cam_quart)
-                scallop_polygon_geocentric = TransformPoints(scallop_polygon_chunk, chunk_transform)
-                scallop_polygon_geodetic = np.apply_along_axis(gcs2ccs, 1, scallop_polygon_geocentric.T)
-                scallop_polygon_shapely = Polygon(scallop_polygon_geodetic).simplify(tolerance=0.001 / 111e3, preserve_topology=True)
-                prediction_geometries.append(scallop_polygon_shapely)
-                prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
-                prediction_labels.append(str(round(score.item(), 2)))
-
-                if False and IMSHOW and scallop_pnts_cam.shape[1] > 1:
-                    pc_vecs, pc_lengths, center_pnt = spf.pca(scallop_pnts_cam.T)
-                    MUL = 1.9
-                    pc_lengths = np.sqrt(pc_lengths) * MUL
-                    scaled_pc_lengths = pc_lengths * chunk_scale * 2
-                    width_scallop_circle = 2 * chunk_scale * scallop_pnts_cam[2, :].mean() * radius / camMtx[0, 0]
-                    cv2.putText(out_image, str(round(scaled_pc_lengths[0], 3)), tuple(scallop_centre + np.array([20, -10])),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 4, cv2.LINE_AA)
-                    cv2.putText(out_image, str(round(width_scallop_circle, 3)), tuple(scallop_centre + np.array([20, 30])),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 4, cv2.LINE_AA)
-                    # draw_scaled_axes(out_image, pc_vecs, pc_lengths, center_pnt, camMtx)
-
-                if VTK:
-                    pnt_cld.setPoints(scallop_pnts_cam.T - center_pnt, np.array([1, 1, 1] * scallop_pnts_cam.shape[1]).T)
-                    axes_transform_np[:3, :3] = np.multiply(pc_vecs, np.repeat(pc_lengths[:, None], 3, axis=1)).T
-                    axes_matrix.DeepCopy(axes_transform_np.ravel())
-                    vtk_axes.Modified()
-                    iren.Render()
-                    iren.Start()
+            mask_np = mask.numpy()[:, :, None].astype(np.uint8)
+            contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+            scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
+            max_pix_inds = np.max(scallop_polygon, axis=0)
+            min_pix_inds = np.min(scallop_polygon, axis=0)
+            if (any(min_pix_inds < EDGE_LIMIT_PIX) or
+                    max_pix_inds[1] >= rs_size[1] - EDGE_LIMIT_PIX or max_pix_inds[0] >= rs_size[0] - EDGE_LIMIT_PIX):
+                continue
+            scallop_polygon_geodetic = reprojection.reproject_polygon(scallop_polygon, camMtx, camDist, cam_quart,
+                                                                      img_depth_np, chunk_scale, chunk_transform)
+            if scallop_polygon_geodetic is None:
+                continue
+            if IMSHOW:
+                cv2.circle(out_image, scallop_polygon.mean(axis=0).astype(int), 10, (0, 255, 0), -1)
+            scallop_polygon_shapely = Polygon(scallop_polygon_geodetic).simplify(tolerance=0.001 / 111e3, preserve_topology=True)
+            prediction_geometries.append(scallop_polygon_shapely)
+            prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
+            prediction_labels.append(str(round(score.item(), 2)))
 
         if IMSHOW and len(cam_fov_polys) > 0:
             # print("Image inference time: {}s".format(time.time()-start_time))

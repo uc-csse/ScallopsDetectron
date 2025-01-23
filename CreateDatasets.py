@@ -1,5 +1,4 @@
 import numpy as np
-import os
 from matplotlib import pyplot as plt
 import cv2
 from detectron2.structures import BoxMode
@@ -13,16 +12,13 @@ import glob
 import math
 from shapely.geometry import *
 
-DISPLAY = True
+DISPLAY = False
 WAITKEY = 0
 
+POLY_DEM_UPSAMPLE = 100
+
 CAM_COV_THRESHOLD = 0.01
-
 CAM_SCALLOP_DIST_THRESH = 2.0
-CAM_SCALLOP_Z_THRESH = 2.0
-
-PIX_EDGE_THRESH_CORNER = 10
-
 BOUNDARY_BUFFER_DIST_M = 0.1
 
 IMG_SHAPE = (2056, 2464)
@@ -30,8 +26,11 @@ IMG_RS_MOD = 2
 CNN_INPUT_SHAPE = (IMG_SHAPE[0] // IMG_RS_MOD, IMG_SHAPE[1] // IMG_RS_MOD)
 NON_SCALLOP_DOWNSAMPLE = 50  # 10
 
+FRAME_POLY_SHPLY = Polygon([[0, 0], [CNN_INPUT_SHAPE[1]-1, 0], [CNN_INPUT_SHAPE[1]-1, CNN_INPUT_SHAPE[0]-1],
+                            [0, CNN_INPUT_SHAPE[0]-1]])  # XY
+
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
-DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'
+ANN_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'
 
 def TransformPoints(pnts, transform_quart):
     return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
@@ -79,6 +78,7 @@ def create_dataset(dirname):
             inc_bound = layer_label == 'Include Areas'
             boundary_list = include_polygons if inc_bound else exclude_polygons
             for poly in shape_layer.geometry:
+                # TODO: replace with img section masking
                 offset_poly = poly.buffer(BOUNDARY_BUFFER_DIST_M / 111e3 * (-1 if inc_bound else 1), join_style=2)
                 boundary_list.extend(offset_poly.geoms if isinstance(offset_poly, MultiPolygon) else [offset_poly])
         if 'poly' in layer_label.lower():
@@ -104,7 +104,7 @@ def create_dataset(dirname):
                 poly_2d = np.array(row.geometry.exterior.coords)[:, :2]
                 if poly_2d.shape[0] < 5:
                     continue
-                poly_2d = spf.UpsamplePoly(poly_2d, 100 // poly_2d.shape[0])
+                poly_2d = spf.UpsamplePoly(poly_2d, max(1, POLY_DEM_UPSAMPLE // poly_2d.shape[0]))
                 poly_3d = dem_obj.poly3d_from_dem(poly_2d)
                 poly_3d_conv = spf.convolve_z(poly_3d.copy())
                 poly_3d_geocentric = np.apply_along_axis(ccs2gcs, 1, poly_3d_conv)
@@ -123,7 +123,8 @@ def create_dataset(dirname):
                 # BOX_MINMAX = [-0.07 / chunk_scale, 0.07 / chunk_scale]
                 # ax.auto_scale_xyz(BOX_MINMAX, BOX_MINMAX, BOX_MINMAX)
                 # plt.show()
-                polygons_chunk.append(poly_3d_chunk_flt)
+                if poly_3d_chunk_flt.shape[0] > 3:
+                    polygons_chunk.append(poly_3d_chunk_flt)
     print("Number of valid scallop polygons in chunk: {}".format(len(polygons_chunk)))
 
     img_id = 0
@@ -135,13 +136,19 @@ def create_dataset(dirname):
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
         # Check camera accuracy
-
-        # print("Cam COV xyz:", xyz_cov_mean * chunk_scale**2)
-
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale**2:
-            print("Bad camera covariance, skipping.")
+            # print("Bad camera covariance, skipping.")
             continue
+        height = cam_telem['shape'][0] // IMG_RS_MOD
+        width = cam_telem['shape'][1] // IMG_RS_MOD
+        img_path_rel = cam_telem['cpath']
+        img_path = data_dir + img_path_rel
+        camMtx = cam_telem['cam_mtx']
+        camMtx[:2, :] /= IMG_RS_MOD
+        camDist = cam_telem['cam_dist']
+        cam_fov = cam_telem['cam_fov']
 
+        # TODO: replace this with image region masking...
         # Check camera center is inside include area and outside all exclude areas (with buffer)
         camloc_chunk = cam_quart[:3, 3][:, None]
         camloc_geocentric = TransformPoints(camloc_chunk, chunk_transform)
@@ -150,14 +157,6 @@ def create_dataset(dirname):
             continue
         if any(camloc_geodetic_pnt.within(exc_poly) for exc_poly in exclude_polygons):
             continue
-
-        height, width = cam_telem['shape']
-        img_path_rel = cam_telem['cpath']
-        img_path = data_dir + img_path_rel
-        camMtx = cam_telem['cam_mtx']
-        camMtx[:2, :] /= IMG_RS_MOD
-        camDist = cam_telem['cam_dist']
-        cam_fov = cam_telem['cam_fov']
 
         # img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
         # img_cam_und = cv2.undistort(img, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
@@ -185,45 +184,43 @@ def create_dataset(dirname):
         display_bxs = []
         scallop_in_img = False
         for scallop_id, polygon in enumerate(polygons_chunk):
-            polygon_center_cam = TransformPoints(polygon.mean(axis=0)[:, None], cam_quart_inv).T[0]
-            too_far_from_cam = abs(polygon_center_cam[2]) > 1.5 / chunk_scale
-            if not spf.pnt_in_cam_fov(polygon_center_cam, cam_fov, tol_deg=0) or too_far_from_cam:
+            distance_to_cam = np.linalg.norm(polygon[::10].mean(axis=0) - cam_quart[:3, 3])
+            if distance_to_cam > CAM_SCALLOP_DIST_THRESH / chunk_scale:
                 continue
             polygon_cam = TransformPoints(polygon.T, cam_quart_inv)
-            pix_coords = spf.Project2Img(polygon_cam, camMtx, camDist).astype(int).T
-            valid_pix_coords = pix_coords[:, np.where((pix_coords[0, :] >= 0) * (pix_coords[0, :] < width) *
-                                                      (pix_coords[1, :] >= 0) * (pix_coords[1, :] < height))][:, 0, :]
-            if valid_pix_coords.shape[1] < 3:
+            pix_coords = spf.Project2Img(polygon_cam, camMtx, camDist).astype(np.int32)
+            pix_poly_shply = Polygon(pix_coords).buffer(0)
+            if not pix_poly_shply.intersects(FRAME_POLY_SHPLY):
                 continue
-            scallop_in_img = True
+            intersection_geoms = pix_poly_shply.intersection(FRAME_POLY_SHPLY)
+            if isinstance(intersection_geoms, Polygon):
+                intersection_geoms = [intersection_geoms]
+            elif isinstance(intersection_geoms, GeometryCollection) or isinstance(intersection_geoms, MultiPolygon):
+                intersection_geoms = [geom for geom in intersection_geoms.geoms if isinstance(geom, Polygon)]
+            elif isinstance(intersection_geoms, MultiLineString):
+                intersection_geoms = [Polygon(line_str) for line_str in intersection_geoms.geoms if len(line_str.coords) > 2]
+            elif isinstance(intersection_geoms, LineString) and len(intersection_geoms.coords) > 2:
+                intersection_geoms = [Polygon(intersection_geoms)]
+            else:
+                continue
 
-            # Fill in corner detections where it would cut
-            is_edge = np.less(valid_pix_coords, PIX_EDGE_THRESH_CORNER) + \
-                      np.greater(valid_pix_coords, np.array([[width - PIX_EDGE_THRESH_CORNER],
-                                                             [height - PIX_EDGE_THRESH_CORNER]]))
-            needs_corner = np.logical_xor(is_edge[0, :-1], is_edge[0, 1:]) * \
-                           np.logical_xor(is_edge[1, :-1], is_edge[1, 1:]) * \
-                           np.logical_xor(is_edge[0, :-1], is_edge[1, :-1])
-            if np.any(needs_corner):
-                corner_index = np.argmax(needs_corner) + 1
-                corner_pix = valid_pix_coords[:, corner_index]
-                corner_pix = np.round(corner_pix / np.array([width, height])) * np.array([width, height])
-                valid_pix_coords = np.insert(valid_pix_coords, corner_index, corner_pix, axis=1)
-
-            display_polygon_l.append(valid_pix_coords.transpose())
-            x_min, y_min = np.min(valid_pix_coords, axis=1).tolist()
-            x_max, y_max = np.max(valid_pix_coords, axis=1).tolist()
-            display_bxs.append([[x_min, y_min], [x_max, y_max]])
-            obj = {
-                "bbox": [x_min, y_min, x_max, y_max],
-                "bbox_mode": BoxMode.XYXY_ABS,
-                "segmentation": [valid_pix_coords.transpose().tolist()],
-                "category_id": 0,
-                "id": scallop_id,
-                "iscrowd": 0,
-                "name": 'scallop',
-            }
-            objs.append(obj)
+            for valid_poly in intersection_geoms:
+                valid_pix_coords = np.array(valid_poly.exterior.coords, dtype=np.int32)
+                scallop_in_img = True
+                display_polygon_l.append(np.concatenate([valid_pix_coords, valid_pix_coords[:1]]))
+                x_min, y_min = np.min(valid_pix_coords, axis=0).tolist()
+                x_max, y_max = np.max(valid_pix_coords, axis=0).tolist()
+                display_bxs.append([[x_min, y_min], [x_max, y_max]])
+                obj = {
+                    "bbox": [x_min, y_min, x_max, y_max],
+                    "bbox_mode": BoxMode.XYXY_ABS,
+                    "segmentation": [valid_pix_coords.tolist()],
+                    "category_id": 0,
+                    "id": scallop_id,
+                    "iscrowd": 0,
+                    "name": 'scallop',
+                }
+                objs.append(obj)
 
         if skip_num < NON_SCALLOP_DOWNSAMPLE and not scallop_in_img:
             skip_num += 1
@@ -239,8 +236,8 @@ def create_dataset(dirname):
 
         record = {}
         record["file_name"] = img_fn
-        record["height"] = height // IMG_RS_MOD
-        record["width"] = width // IMG_RS_MOD
+        record["height"] = height
+        record["width"] = width
         record["image_id"] = img_id
         img_id += 1
         record["annotations"] = objs
@@ -251,7 +248,7 @@ def create_dataset(dirname):
             for polygon in display_polygon_l:
                 cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)
             for box_pt1, box_pt2 in display_bxs:
-                cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 2)
+                cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 1)
             cv2.imshow("Annotated img", drawing)
             key = cv2.waitKey(WAITKEY)
             if key == ord('b'):
@@ -269,9 +266,9 @@ def create_dataset(dirname):
 
 if __name__ == '__main__':
     datasets_created = []
-    with open(DONE_DIRS_FILE, 'r') as todo_file:
+    with open(ANN_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs[38:]:
+    for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

@@ -147,7 +147,7 @@ def UpsamplePoly(polygon, num=10):
     for idx in range(poly_ext.shape[0]-1):
         int_points = np.linspace(poly_ext[idx], poly_ext[idx+1], num=num)
         up_poly.extend(int_points)
-    return np.array(up_poly)
+    return np.array(up_poly, dtype=polygon.dtype)
 
 def Project2Img(points, cam_mtx, dist):
     result = []

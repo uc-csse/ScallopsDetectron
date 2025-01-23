@@ -23,7 +23,7 @@ SCALE_FACTOR = 1.025
 SAVE_STATS_PLOTS = False
 SHOW_STATS_PLOTS = False
 SHOW_SHAPE_PLOTS = False
-OUTPUT_TO_CSVS = True
+OUTPUT_TO_CSVS = False
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
@@ -60,7 +60,11 @@ def append_to_csv(filepath, df):
         df.to_csv(f, header=not csv_exists, index=False)
 
 
+
+total_NIWA_point_count = 0
+
 def process_dir(base_dir, dir_name):
+    global total_NIWA_point_count
     dir_full = base_dir + dir_name + '/'
     print(f"\n------------ Calculating Statistics for {dir_name} ------------")
 
@@ -109,6 +113,11 @@ def process_dir(base_dir, dir_name):
             for i, row in shape_layer.iterrows():
                 if isinstance(row.geometry, LineString):
                     scallop_shapes["NIWA_annotated"].append(row.geometry)
+                elif isinstance(row.geometry, Point):
+                    total_NIWA_point_count += 1
+                else:
+                    print(f"Error: {row.geometry.type} found in NIWA annotations!")
+
         if "diver_measurements_all" in label.lower():
             print(f"{GREENC}VPZ Diver measurements found{ENDC}")
             vpz_diver_measurements_gps = []
@@ -548,16 +557,13 @@ if __name__ == "__main__":
         with open(DONE_DIRS_FILE, 'r') as f:
             dirs_list = f.readlines()
     # dirs_list = dirs_list[132:]
-<<<<<<< HEAD
     # dirs_list = ['240713-104835\n']
-=======
-    # dirs_list = ['240615-144558\n']
->>>>>>> 6546e4bf3f166bd0c20cc863cdc9389f6cc515f6
 
-    if os.path.isfile(PROCESSED_BASEDIR + 'individual_diver_measurements.csv'):
-        os.remove(PROCESSED_BASEDIR + 'individual_diver_measurements.csv')
-    if os.path.isfile(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv'):
-        os.remove(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv')
+    if OUTPUT_TO_CSVS:
+        if os.path.isfile(PROCESSED_BASEDIR + 'individual_diver_measurements.csv'):
+            os.remove(PROCESSED_BASEDIR + 'individual_diver_measurements.csv')
+        if os.path.isfile(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv'):
+            os.remove(PROCESSED_BASEDIR + 'individual_cnn_measurements.csv')
 
     for dir_entry in dirs_list:
         if len(dir_entry) == 1 or '#' in dir_entry:
@@ -574,3 +580,5 @@ if __name__ == "__main__":
         #     print(e)
 
        #  break
+
+    print("Total number of NIWA annotated live scallops:", total_NIWA_point_count)
